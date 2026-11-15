@@ -1,15 +1,21 @@
 package com.hongguotv.phone;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.graphics.SurfaceTexture;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.media.PlaybackParams;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.Surface;
+import android.view.TextureView;
+import android.view.View;
+import android.widget.ImageButton;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -17,12 +23,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
-/**
- * 使用 MediaPlayer + 官方 UA 头播放 CDN，避免 VideoView 无请求头导致黑屏。
- */
-public class LocalPlayerActivity extends Activity implements SurfaceHolder.Callback {
+public class LocalPlayerActivity extends Activity implements TextureView.SurfaceTextureListener {
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_TITLE = "title";
     public static final String EXTRA_SERIES_ID = "seriesId";
@@ -32,22 +36,47 @@ public class LocalPlayerActivity extends Activity implements SurfaceHolder.Callb
     private static final String VIDEO_UA =
             "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C)";
 
-    private SurfaceView surface;
-    private TextView titleView;
+    private TextureView texture;
+    private TextView titleView, loading, timeText;
+    private View controls;
+    private SeekBar seek;
+    private ImageButton btnPlay;
     private MediaPlayer player;
+    private Surface surface;
     private JSONObject detail;
     private int index;
     private String currentUrl;
     private boolean surfaceReady;
+    private boolean userSeeking;
     private final Handler ui = new Handler(Looper.getMainLooper());
+
+    private final Runnable tick = new Runnable() {
+        @Override public void run() {
+            updateProgress();
+            ui.postDelayed(this, 500);
+        }
+    };
+
+    private final Runnable hideControls = () -> {
+        if (controls != null && player != null && player.isPlaying()) {
+            controls.setVisibility(View.GONE);
+            titleView.setVisibility(View.GONE);
+        }
+    };
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         try {
             setContentView(R.layout.activity_local_player);
-            surface = findViewById(R.id.surface);
+            texture = findViewById(R.id.texture);
             titleView = findViewById(R.id.title);
-            surface.getHolder().addCallback(this);
+            loading = findViewById(R.id.loading);
+            controls = findViewById(R.id.controls);
+            timeText = findViewById(R.id.timeText);
+            seek = findViewById(R.id.seek);
+            btnPlay = findViewById(R.id.btnPlay);
+            texture.setSurfaceTextureListener(this);
+
             index = getIntent().getIntExtra(EXTRA_INDEX, 0);
             try {
                 String raw = getIntent().getStringExtra(EXTRA_DETAIL_JSON);
@@ -59,10 +88,47 @@ public class LocalPlayerActivity extends Activity implements SurfaceHolder.Callb
             String title = getIntent().getStringExtra(EXTRA_TITLE);
             titleView.setText(title == null ? "播放" : title);
 
-            findViewById(R.id.btnPlayPause).setOnClickListener(v -> togglePlay());
+            findViewById(R.id.btnPrev).setOnClickListener(v -> playIndex(index - 1));
+            findViewById(R.id.btnNext).setOnClickListener(v -> playIndex(index + 1));
             findViewById(R.id.btnPush).setOnClickListener(v -> pushCurrent());
+            btnPlay.setOnClickListener(v -> togglePlay());
+
+            findViewById(R.id.root).setOnClickListener(v -> {
+                showControls();
+            });
+
+            seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    if (fromUser && player != null) {
+                        try {
+                            int dur = player.getDuration();
+                            if (dur > 0) {
+                                int pos = (int) (dur * (progress / 1000.0));
+                                timeText.setText(fmt(pos) + " / " + fmt(dur));
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+                @Override public void onStartTrackingTouch(SeekBar seekBar) { userSeeking = true; }
+                @Override public void onStopTrackingTouch(SeekBar seekBar) {
+                    userSeeking = false;
+                    if (player != null) {
+                        try {
+                            int dur = player.getDuration();
+                            if (dur > 0) {
+                                int pos = (int) (dur * (seekBar.getProgress() / 1000.0));
+                                player.seekTo(pos);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                    showControls();
+                }
+            });
 
             AppLog.i("LocalPlayer url=" + AppLog.clip(currentUrl, 100));
+            ensureCastServiceAsync(() -> {
+                // 等 surface
+            });
         } catch (Exception e) {
             AppLog.e("LocalPlayer onCreate", e);
             Toast.makeText(this, "播放页异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -70,55 +136,101 @@ public class LocalPlayerActivity extends Activity implements SurfaceHolder.Callb
         }
     }
 
-    @Override public void surfaceCreated(SurfaceHolder holder) {
+    private void showControls() {
+        controls.setVisibility(View.VISIBLE);
+        titleView.setVisibility(View.VISIBLE);
+        ui.removeCallbacks(hideControls);
+        ui.postDelayed(hideControls, 4000);
+    }
+
+    @Override public void onSurfaceTextureAvailable(SurfaceTexture st, int width, int height) {
         surfaceReady = true;
+        surface = new Surface(st);
+        AppLog.i("Surface ready " + width + "x" + height);
         openPlayer(currentUrl);
     }
 
-    @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
+    @Override public void onSurfaceTextureSizeChanged(SurfaceTexture st, int width, int height) {}
 
-    @Override public void surfaceDestroyed(SurfaceHolder holder) {
+    @Override public boolean onSurfaceTextureDestroyed(SurfaceTexture st) {
         surfaceReady = false;
         releasePlayer();
+        if (surface != null) {
+            surface.release();
+            surface = null;
+        }
+        return true;
     }
+
+    @Override public void onSurfaceTextureUpdated(SurfaceTexture st) {}
 
     private void openPlayer(String url) {
         if (url == null || url.isEmpty()) {
-            Toast.makeText(this, "无播放地址", Toast.LENGTH_SHORT).show();
+            loading.setText("无播放地址");
             return;
         }
-        if (!surfaceReady) {
+        if (!surfaceReady || surface == null) {
             currentUrl = url;
             return;
         }
         releasePlayer();
         currentUrl = url;
+        loading.setVisibility(View.VISIBLE);
+        loading.setText("加载中…");
+        showControls();
+
+        new Thread(() -> {
+            final String playUrl = buildPlayUrl(url);
+            ui.post(() -> startMediaPlayer(playUrl, url));
+        }, "open-player").start();
+    }
+
+    /** 优先本机代理（保证 UA），否则直连 */
+    private String buildPlayUrl(String url) {
+        try {
+            ensureCastServiceBlocking();
+            CastServerService svc = CastServerService.INSTANCE;
+            if (svc != null && svc.getServer() != null) {
+                String proxy = svc.getServer().proxyUrl(url);
+                if (proxy != null && proxy.contains("127.0.0.1")) {
+                    AppLog.i("播放地址用本机代理 " + proxy);
+                    return proxy;
+                }
+            }
+        } catch (Exception e) {
+            AppLog.w("代理构建失败: " + e.getMessage());
+        }
+        AppLog.w("回退直连 CDN");
+        return url;
+    }
+
+    private void startMediaPlayer(String playUrl, String originUrl) {
         try {
             player = new MediaPlayer();
             player.setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
                     .build());
-            player.setDisplay(surface.getHolder());
-            Map<String, String> headers = new HashMap<>();
-            headers.put("User-Agent", VIDEO_UA);
-            headers.put("Referer", "https://www.hongguoduanju.com/");
-            headers.put("Accept", "*/*");
-            // 优先直连 CDN + 请求头；失败再试本机代理
-            boolean opened = false;
-            try {
-                player.setDataSource(this, android.net.Uri.parse(url), headers);
-                opened = true;
-                AppLog.i("MediaPlayer setDataSource 直连+UA");
-            } catch (Exception e) {
-                AppLog.w("直连 setDataSource 失败: " + e.getMessage());
+            player.setSurface(surface);
+
+            if (playUrl.contains("127.0.0.1")) {
+                player.setDataSource(playUrl);
+                AppLog.i("MediaPlayer 代理 setDataSource");
+            } else {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("User-Agent", VIDEO_UA);
+                headers.put("Referer", "https://www.hongguoduanju.com/");
+                headers.put("Accept", "*/*");
+                player.setDataSource(this, Uri.parse(playUrl), headers);
+                AppLog.i("MediaPlayer 直连+UA setDataSource");
             }
-            if (!opened) {
-                String proxy = tryProxy(url);
-                player.setDataSource(proxy);
-                AppLog.i("MediaPlayer setDataSource 代理 " + AppLog.clip(proxy, 80));
-            }
+
             player.setOnPreparedListener(mp -> {
+                int w = mp.getVideoWidth();
+                int h = mp.getVideoHeight();
+                int dur = mp.getDuration();
+                AppLog.i("MediaPlayer prepared " + w + "x" + h + " durationMs=" + dur);
+                loading.setVisibility(View.GONE);
                 try {
                     float speed = DeviceSettings.INSTANCE.defaultSpeed;
                     if (Build.VERSION.SDK_INT >= 23 && speed > 0.1f) {
@@ -127,89 +239,108 @@ public class LocalPlayerActivity extends Activity implements SurfaceHolder.Callb
                         mp.setPlaybackParams(params);
                     }
                 } catch (Exception ignored) {}
-                AppLog.i("MediaPlayer prepared durationMs=" + mp.getDuration());
                 mp.start();
+                btnPlay.setImageResource(android.R.drawable.ic_media_pause);
+                ui.removeCallbacks(tick);
+                ui.post(tick);
+                showControls();
+                if (w <= 0 || h <= 0) {
+                    AppLog.w("视频宽高为 0，可能无画面（加密/编码）");
+                    Toast.makeText(this, "已连接音轨，画面异常可能是片源编码限制", Toast.LENGTH_LONG).show();
+                }
             });
             player.setOnErrorListener((mp, what, extra) -> {
-                AppLog.e("MediaPlayer error what=" + what + " extra=" + extra);
-                // 直连失败时再试代理
-                if (url.startsWith("http") && !url.contains("127.0.0.1")) {
-                    ui.post(() -> retryViaProxy(url));
+                AppLog.e("MediaPlayer error what=" + what + " extra=" + extra + " url=" + AppLog.clip(playUrl, 60));
+                loading.setVisibility(View.VISIBLE);
+                loading.setText("播放失败 what=" + what);
+                // 若代理失败，再试一次直连
+                if (playUrl.contains("127.0.0.1") && originUrl != null && !originUrl.contains("127.0.0.1")) {
+                    ui.postDelayed(() -> {
+                        AppLog.i("代理失败，尝试直连");
+                        startMediaPlayer(originUrl, null);
+                    }, 300);
                 } else {
-                    ui.post(() -> Toast.makeText(this, "播放失败 what=" + what + " extra=" + extra, Toast.LENGTH_LONG).show());
+                    Toast.makeText(this, "播放失败 what=" + what + " extra=" + extra, Toast.LENGTH_LONG).show();
                 }
                 return true;
             });
             player.setOnCompletionListener(mp -> playIndex(index + 1));
             player.setOnInfoListener((mp, what, extra) -> {
-                AppLog.i("MediaPlayer info what=" + what + " extra=" + extra);
+                if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START) {
+                    loading.setVisibility(View.VISIBLE);
+                    loading.setText("缓冲中…");
+                } else if (what == MediaPlayer.MEDIA_INFO_BUFFERING_END
+                        || what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                    loading.setVisibility(View.GONE);
+                    AppLog.i("MediaPlayer info rendering/buffer end what=" + what);
+                }
                 return false;
             });
             player.prepareAsync();
         } catch (Exception e) {
-            AppLog.e("openPlayer 失败", e);
+            AppLog.e("startMediaPlayer", e);
+            loading.setText("无法打开: " + e.getMessage());
             Toast.makeText(this, "无法打开: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
-    private void retryViaProxy(String url) {
-        try {
-            String proxy = tryProxy(url);
-            AppLog.i("错误后改走代理 " + proxy);
-            releasePlayer();
-            player = new MediaPlayer();
-            player.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                    .build());
-            player.setDisplay(surface.getHolder());
-            player.setDataSource(proxy);
-            player.setOnPreparedListener(mp -> {
-                AppLog.i("代理 prepared durationMs=" + mp.getDuration());
-                mp.start();
-            });
-            player.setOnErrorListener((mp, what, extra) -> {
-                AppLog.e("代理播放仍失败 what=" + what + " extra=" + extra);
-                Toast.makeText(this, "代理播放失败 what=" + what, Toast.LENGTH_LONG).show();
-                return true;
-            });
-            player.prepareAsync();
-        } catch (Exception e) {
-            AppLog.e("retryViaProxy", e);
-            Toast.makeText(this, "代理失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
+    private void ensureCastServiceAsync(Runnable done) {
+        new Thread(() -> {
+            ensureCastServiceBlocking();
+            if (done != null) ui.post(done);
+        }).start();
     }
 
-    private String tryProxy(String url) {
+    private void ensureCastServiceBlocking() {
+        if (CastServerService.INSTANCE != null && CastServerService.INSTANCE.getServer() != null) return;
         try {
-            if (CastServerService.INSTANCE == null) {
-                android.content.Intent i = new android.content.Intent(this, CastServerService.class);
-                i.putExtra(CastServerService.EXTRA_PAIR, "0000");
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
-                else startService(i);
-                for (int n = 0; n < 40 && CastServerService.INSTANCE == null; n++) {
-                    try { Thread.sleep(50); } catch (InterruptedException ignored) {}
-                }
+            Intent i = new Intent(this, CastServerService.class);
+            i.putExtra(CastServerService.EXTRA_PAIR, "0000");
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+            for (int n = 0; n < 50; n++) {
+                if (CastServerService.INSTANCE != null && CastServerService.INSTANCE.getServer() != null) break;
+                try { Thread.sleep(40); } catch (InterruptedException ignored) {}
             }
-            CastServerService svc = CastServerService.INSTANCE;
-            if (svc != null && svc.getServer() != null) {
-                return svc.getServer().proxyUrl(url);
-            }
+            AppLog.i("投屏服务 " + (CastServerService.INSTANCE != null ? "就绪" : "未就绪"));
         } catch (Exception e) {
-            AppLog.w("tryProxy: " + e.getMessage());
+            AppLog.w("启动投屏服务: " + e.getMessage());
         }
-        return url;
     }
 
     private void togglePlay() {
         if (player == null) return;
         try {
-            if (player.isPlaying()) player.pause();
-            else player.start();
+            if (player.isPlaying()) {
+                player.pause();
+                btnPlay.setImageResource(android.R.drawable.ic_media_play);
+            } else {
+                player.start();
+                btnPlay.setImageResource(android.R.drawable.ic_media_pause);
+            }
+            showControls();
         } catch (Exception ignored) {}
     }
 
+    private void updateProgress() {
+        if (player == null || userSeeking) return;
+        try {
+            int pos = player.getCurrentPosition();
+            int dur = player.getDuration();
+            if (dur > 0) {
+                seek.setProgress((int) (1000.0 * pos / dur));
+                timeText.setText(fmt(pos) + " / " + fmt(dur));
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static String fmt(int ms) {
+        int s = Math.max(0, ms / 1000);
+        return String.format(Locale.US, "%02d:%02d", s / 60, s % 60);
+    }
+
     private void releasePlayer() {
+        ui.removeCallbacks(tick);
         if (player != null) {
             try { player.reset(); } catch (Exception ignored) {}
             try { player.release(); } catch (Exception ignored) {}
@@ -218,14 +349,17 @@ public class LocalPlayerActivity extends Activity implements SurfaceHolder.Callb
     }
 
     private void playIndex(int idx) {
-        if (detail == null) return;
+        if (detail == null) {
+            Toast.makeText(this, "无剧集列表，请回详情页选集", Toast.LENGTH_SHORT).show();
+            return;
+        }
         try {
             JSONArray eps = detail.getJSONArray("episodes");
             if (idx < 0 || idx >= eps.length()) return;
             JSONObject ep = eps.getJSONObject(idx);
             String u = ep.optString("url");
             if (u.isEmpty()) {
-                Toast.makeText(this, "本集无地址", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "本集无地址，请回详情重新取流", Toast.LENGTH_SHORT).show();
                 return;
             }
             index = idx;
@@ -237,41 +371,39 @@ public class LocalPlayerActivity extends Activity implements SurfaceHolder.Callb
     }
 
     private void pushCurrent() {
-        if (detail == null || currentUrl == null) return;
+        if (currentUrl == null || currentUrl.isEmpty()) return;
         try {
-            JSONArray eps = detail.getJSONArray("episodes");
+            ensureCastServiceBlocking();
             JSONArray pl = new JSONArray();
-            for (int i = 0; i < eps.length(); i++) {
-                JSONObject e = eps.getJSONObject(i);
-                String u = e.optString("url");
-                if (u.isEmpty()) continue;
-                pl.put(new JSONObject()
-                        .put("url", u)
-                        .put("title", detail.optString("title") + " 第" + (i + 1) + "集")
-                        .put("seriesId", detail.optString("seriesId")));
+            if (detail != null) {
+                JSONArray eps = detail.getJSONArray("episodes");
+                for (int i = 0; i < eps.length(); i++) {
+                    JSONObject e = eps.getJSONObject(i);
+                    String u = e.optString("url");
+                    if (u.isEmpty()) continue;
+                    pl.put(new JSONObject()
+                            .put("url", u)
+                            .put("title", detail.optString("title") + " 第" + (i + 1) + "集")
+                            .put("seriesId", detail.optString("seriesId")));
+                }
+            }
+            if (pl.length() == 0) {
+                pl.put(new JSONObject().put("url", currentUrl).put("title", titleView.getText().toString()));
             }
             int playIdx = Math.max(0, Math.min(index, pl.length() - 1));
-            // 确保当前集用最新 CDN 地址
-            if (index < eps.length()) {
-                // rebuild index from matched url
-            }
-            CastServerService.NOW.setPlaylist(pl.length() > 0 ? pl :
-                    new JSONArray().put(new JSONObject().put("url", currentUrl).put("title", titleView.getText().toString())),
-                    playIdx);
-            if (CastServerService.CACHE != null) {
-                CastServerService.CACHE.setCurrent(currentUrl);
-            }
-            // 推送时用当前实际播放地址
+            CastServerService.NOW.setPlaylist(pl, playIdx);
             CastServerService.NOW.sourceUrl = currentUrl;
+            if (CastServerService.CACHE != null) CastServerService.CACHE.setCurrent(currentUrl);
             Toast.makeText(this, "已推送到电视", Toast.LENGTH_SHORT).show();
-            AppLog.i("推送电视 url=" + AppLog.clip(currentUrl, 80));
+            AppLog.i("推送TV " + AppLog.clip(currentUrl, 80));
         } catch (Exception e) {
-            Toast.makeText(this, "推送失败", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "推送失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
     @Override protected void onDestroy() {
         releasePlayer();
+        ui.removeCallbacks(hideControls);
         super.onDestroy();
     }
 }
