@@ -132,48 +132,55 @@ public final class HongguoClient {
                     .put("locked", !free)
                     .put("seriesId", seriesId));
         }
-        // App 通道：尝试为锁定集补全播放地址（设备注册 + 签名取流）
-        int appOk = 0;
-        try {
-            for (int i = 0; i < episodes.length(); i++) {
-                JSONObject ep = episodes.getJSONObject(i);
-                if (!ep.optBoolean("locked") && !ep.optString("url").isEmpty()) continue;
-                String vid = ep.optString("vid");
-                if (vid.isEmpty()) continue;
-                try {
-                    JSONObject app = AppPlayClient.fetchEpisode(vid, DeviceSettings.INSTANCE.preferredQuality);
-                    String appUrl = app.optString("url");
-                    if (!appUrl.isEmpty()) {
-                        ep.put("url", appUrl);
-                        ep.put("locked", false);
-                        ep.put("quality", app.optString("quality", "app"));
-                        ep.put("source", "app");
-                        appOk++;
-                    }
-                } catch (Exception ignoreOne) {
-                    // 单集失败继续
-                }
-                if (i >= 12 && appOk == 0) break; // 签名若整体失败，避免长时间阻塞
-            }
-        } catch (Exception ignored) {}
-        String channel = appOk > 0 ? "app+web" : "web-public";
         String note;
-        if (appOk > 0) {
-            note = "App 源已补全 " + appOk + " 集；其余可用公共源或稍后重试";
-        } else if (accessible < episodeCnt) {
-            note = "公共源可播前 " + accessible + " 集；App 签名取流未成功时可稍后重试";
+        if (accessible < episodeCnt) {
+            note = "公共源可播前 " + accessible + " 集；锁定集将在播放时走 App 签名取流（无需登录）";
         } else {
-            note = "公共源";
+            note = "公共源可播";
         }
         return new JSONObject()
                 .put("seriesId", seriesId)
                 .put("title", title == null ? ("剧集 " + seriesId) : title)
                 .put("cover", cover == null ? "" : cover)
                 .put("episodeCnt", Math.max(episodeCnt, episodes.length()))
-                .put("accessible", accessible + appOk)
-                .put("sourceChannel", channel)
+                .put("accessible", accessible)
+                .put("sourceChannel", "web+app-on-play")
                 .put("note", note)
                 .put("episodes", episodes);
+    }
+
+    /** 单集取流：公共源优先，失败则 App 签名（对齐 drama 按集请求） */
+    public static JSONObject resolveEpisode(String seriesId, String vid, int episode, String preferredQuality) throws Exception {
+        // 1) public web
+        if (vid != null && !vid.isEmpty()) {
+            String[] qs = qualityOrder(preferredQuality == null ? "360p" : preferredQuality);
+            for (String q : qs) {
+                String url = ORIGIN + "/video/public/" + vid + "/" + q + ".mp4";
+                // return candidate; player will error if 404
+                if ("360p".equals(q) || "720p".equals(q) || "1080p".equals(q)) {
+                    // Prefer trying app for non-first episodes; still return public URL for ep1-accessible
+                }
+            }
+            // Always attempt App for locked / higher quality
+            try {
+                org.json.JSONObject app = com.hongguotv.phone.app.AppPlayClient.fetchEpisode(vid, preferredQuality);
+                if (app != null && app.optString("url").length() > 0) {
+                    return app.put("title", "第" + episode + "集").put("seriesId", seriesId).put("episode", episode);
+                }
+            } catch (Exception e) {
+                // fall through to public
+            }
+            String publicUrl = ORIGIN + "/video/public/" + vid + "/360p.mp4";
+            return new JSONObject()
+                    .put("url", publicUrl)
+                    .put("quality", "360p")
+                    .put("vid", vid)
+                    .put("source", "web-public")
+                    .put("seriesId", seriesId)
+                    .put("episode", episode)
+                    .put("title", "第" + episode + "集");
+        }
+        throw new IllegalStateException("无 vid");
     }
 
     public static JSONObject resolvePlay(String seriesId, String vidOrEp) throws Exception {

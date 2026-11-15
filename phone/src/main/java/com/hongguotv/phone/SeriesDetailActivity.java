@@ -1,12 +1,12 @@
 package com.hongguotv.phone;
 
 import android.app.Activity;
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.GridView;
-import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -41,15 +41,7 @@ public class SeriesDetailActivity extends Activity {
         GridView grid = findViewById(R.id.episodeGrid);
         episodeAdapter = new EpisodeAdapter(this);
         grid.setAdapter(episodeAdapter);
-        grid.setOnItemClickListener((parent, view, position, id) -> {
-            episodeAdapter.setSelected(position);
-            try {
-                JSONObject ep = (JSONObject) episodeAdapter.getItem(position);
-                if (ep != null && ep.optBoolean("locked")) {
-                    Toast.makeText(this, "本集公共源锁定，需 App 高清解析", Toast.LENGTH_SHORT).show();
-                }
-            } catch (Exception ignored) {}
-        });
+        grid.setOnItemClickListener((parent, view, position, id) -> episodeAdapter.setSelected(position));
         findViewById(R.id.btnBack).setOnClickListener(v -> finish());
         findViewById(R.id.btnPlayPhone).setOnClickListener(v -> play(false));
         findViewById(R.id.btnPushTv).setOnClickListener(v -> play(true));
@@ -63,7 +55,7 @@ public class SeriesDetailActivity extends Activity {
             JSONArray eps = detail.optJSONArray("episodes");
             ui.post(() -> {
                 meta.setText(detail.optString("title") + "\n共 "
-                        + detail.optInt("episodeCnt") + " 集 · 公共可播 "
+                        + detail.optInt("episodeCnt") + " 集 · 公共可播约 "
                         + detail.optInt("accessible") + " 集\n清晰度偏好 "
                         + DeviceSettings.INSTANCE.preferredQuality);
                 if (sourceNote != null) sourceNote.setText(detail.optString("note"));
@@ -85,51 +77,91 @@ public class SeriesDetailActivity extends Activity {
             Toast.makeText(this, "尚未加载完成", Toast.LENGTH_SHORT).show();
             return;
         }
-        try {
-            JSONArray eps = detail.getJSONArray("episodes");
-            if (eps.length() == 0) {
-                Toast.makeText(this, "无剧集", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            int idx = episodeAdapter.getSelected();
-            if (idx < 0 || idx >= eps.length()) idx = 0;
-            JSONObject ep = eps.getJSONObject(idx);
-            if (ep.optBoolean("locked") || ep.optString("url").isEmpty()) {
-                Toast.makeText(this, "选中集不可播（公共源限制），请换未锁定集", Toast.LENGTH_LONG).show();
-                return;
-            }
-            String url = ep.optString("url");
-            String title = detail.optString("title") + " 第" + (idx + 1) + "集";
-            if (pushTv) {
-                JSONArray pl = new JSONArray();
-                int playIndex = 0;
-                for (int i = 0; i < eps.length(); i++) {
-                    JSONObject e = eps.getJSONObject(i);
-                    if (e.optBoolean("locked") || e.optString("url").isEmpty()) continue;
-                    if (i == idx) playIndex = pl.length();
-                    pl.put(new JSONObject()
-                            .put("url", e.optString("url"))
-                            .put("title", detail.optString("title") + " 第" + (i + 1) + "集")
-                            .put("seriesId", seriesId)
-                            .put("quality", e.optString("quality")));
+        final int idx = episodeAdapter.getSelected();
+        ProgressDialog pd = ProgressDialog.show(this, null, "正在取流（App/公共）…", true, true);
+        net.execute(() -> {
+            try {
+                JSONArray eps = detail.getJSONArray("episodes");
+                if (idx < 0 || idx >= eps.length()) throw new IllegalStateException("无此集");
+                JSONObject ep = eps.getJSONObject(idx);
+                String vid = ep.optString("vid");
+                boolean locked = ep.optBoolean("locked");
+                JSONObject resolved;
+                if (!locked && ep.optString("url").length() > 0) {
+                    // still try App for higher quality when preferred not 360p
+                    String pref = DeviceSettings.INSTANCE.preferredQuality;
+                    if (pref != null && !"360p".equals(pref)) {
+                        try {
+                            resolved = HongguoClient.resolveEpisode(seriesId, vid, idx + 1, pref);
+                        } catch (Exception e) {
+                            resolved = ep;
+                        }
+                    } else {
+                        resolved = ep;
+                    }
+                } else {
+                    resolved = HongguoClient.resolveEpisode(seriesId, vid, idx + 1,
+                            DeviceSettings.INSTANCE.preferredQuality);
                 }
-                CastServerService.NOW.setPlaylist(pl, playIndex);
-                if (DeviceSettings.INSTANCE.isProxy() && CastServerService.CACHE != null) {
-                    CastServerService.CACHE.setCurrent(url);
-                }
-                Toast.makeText(this, "已推送到电视（" + ep.optString("quality", "360p") + "）", Toast.LENGTH_SHORT).show();
-            } else {
-                Intent i = new Intent(this, LocalPlayerActivity.class);
-                i.putExtra(LocalPlayerActivity.EXTRA_URL, url);
-                i.putExtra(LocalPlayerActivity.EXTRA_TITLE, title);
-                i.putExtra(LocalPlayerActivity.EXTRA_SERIES_ID, seriesId);
-                i.putExtra(LocalPlayerActivity.EXTRA_INDEX, idx);
-                i.putExtra(LocalPlayerActivity.EXTRA_DETAIL_JSON, detail.toString());
-                startActivity(i);
+                String url = resolved.optString("url");
+                if (url.isEmpty()) throw new IllegalStateException("取流失败 "
+                        + com.hongguotv.phone.core.AppPlayback.lastError());
+                String title = detail.optString("title") + " 第" + (idx + 1) + "集";
+                // write back resolved url
+                ep.put("url", url);
+                ep.put("locked", false);
+                ep.put("quality", resolved.optString("quality", ep.optString("quality")));
+                ep.put("source", resolved.optString("source", "app"));
+                final String fUrl = url;
+                final String fTitle = title;
+                final String fQuality = ep.optString("quality");
+                ui.post(() -> {
+                    pd.dismiss();
+                    episodeAdapter.notifyDataSetChanged();
+                    if (pushTv) {
+                        try {
+                            JSONArray pl = new JSONArray();
+                            pl.put(new JSONObject()
+                                    .put("url", fUrl)
+                                    .put("title", fTitle)
+                                    .put("seriesId", seriesId)
+                                    .put("quality", fQuality));
+                            // also enqueue unlocked neighbors if any
+                            for (int i = 0; i < eps.length(); i++) {
+                                if (i == idx) continue;
+                                JSONObject e = eps.getJSONObject(i);
+                                if (e.optBoolean("locked") || e.optString("url").isEmpty()) continue;
+                                pl.put(new JSONObject()
+                                        .put("url", e.optString("url"))
+                                        .put("title", detail.optString("title") + " 第" + (i + 1) + "集")
+                                        .put("seriesId", seriesId));
+                            }
+                            CastServerService.NOW.setPlaylist(pl, 0);
+                            if (DeviceSettings.INSTANCE.isProxy() && CastServerService.CACHE != null) {
+                                CastServerService.CACHE.setCurrent(fUrl);
+                            }
+                            Toast.makeText(this, "已推送电视 · " + fQuality, Toast.LENGTH_SHORT).show();
+                        } catch (Exception e) {
+                            Toast.makeText(this, "推送失败", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        Intent i = new Intent(this, LocalPlayerActivity.class);
+                        i.putExtra(LocalPlayerActivity.EXTRA_URL, fUrl);
+                        i.putExtra(LocalPlayerActivity.EXTRA_TITLE, fTitle);
+                        i.putExtra(LocalPlayerActivity.EXTRA_SERIES_ID, seriesId);
+                        i.putExtra(LocalPlayerActivity.EXTRA_INDEX, idx);
+                        i.putExtra(LocalPlayerActivity.EXTRA_DETAIL_JSON, detail.toString());
+                        startActivity(i);
+                    }
+                });
+            } catch (Exception e) {
+                ui.post(() -> {
+                    pd.dismiss();
+                    Toast.makeText(this, "取流失败: " + e.getMessage()
+                            + "\n" + com.hongguotv.phone.core.AppPlayback.lastError(), Toast.LENGTH_LONG).show();
+                });
             }
-        } catch (Exception e) {
-            Toast.makeText(this, "操作失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
+        });
     }
 
     @Override protected void onDestroy() {
