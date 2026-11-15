@@ -199,7 +199,7 @@ object AppPlayback {
         }
         fun heightOf(s: Stream): Int {
             if (s.height > 0) return s.height
-            return Regex("(\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            return Regex("(\\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
         }
         fun codecPenalty(s: Stream): Int {
             val c = s.codec.lowercase()
