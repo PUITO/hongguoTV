@@ -91,7 +91,9 @@ public final class NowPlaying {
             prev();
             return;
         } else if ("playMode".equals(action)) {
-            DeviceSettings.INSTANCE.applyJson(new JSONObject().put("playMode", body.optString("value", CastProtocol.MODE_PROXY)));
+            try {
+                DeviceSettings.INSTANCE.applyJson(new JSONObject().put("playMode", body.optString("value", CastProtocol.MODE_PROXY)));
+            } catch (Exception ignored) {}
         }
         bump();
     }
