@@ -7,9 +7,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
 
-import androidx.appcompat.app.AppCompatActivity;
+import android.app.Activity;
 
-public class PlayerActivity extends AppCompatActivity {
+public class PlayerActivity extends Activity {
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_TITLE = "title";
     public static final String EXTRA_PHONE_IP = "phone_ip";
