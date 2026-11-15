@@ -1,5 +1,6 @@
 package com.hongguotv.phone;
 
+
 import com.hongguotv.shared.CastProtocol;
 
 import org.json.JSONArray;
@@ -244,6 +245,7 @@ public final class CastHttpServer {
 
     private void serveStream(Socket s, String rangeHeader) throws Exception {
         String src = now.sourceUrl;
+        AppLog.i("serveStream src=" + AppLog.clip(src, 90) + " range=" + rangeHeader);
         if (src == null || src.isEmpty()) {
             writeText(s, 404, "no source");
             return;
@@ -321,8 +323,9 @@ public final class CastHttpServer {
         c.setRequestProperty("Accept", "*/*");
         if (rangeHeader != null && !rangeHeader.isEmpty()) c.setRequestProperty("Range", rangeHeader);
         int code = c.getResponseCode();
+        AppLog.i("relayUpstream HTTP " + code + " ct=" + c.getContentType() + " cl=" + c.getContentLength());
         InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
-        if (in == null) { writeText(s, 502, "upstream"); return; }
+        if (in == null) { AppLog.w("relayUpstream no stream"); writeText(s, 502, "upstream"); return; }
         String ct = c.getContentType();
         if (ct == null) ct = "video/mp4";
         StringBuilder h = new StringBuilder();
