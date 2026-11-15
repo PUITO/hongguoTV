@@ -2,6 +2,7 @@ package com.hongguotv.phone;
 
 import com.hongguotv.shared.CastProtocol;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -17,10 +18,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * 极简 HTTP 服务：状态 / 当前片源 / 配对校验。
- * 不依赖第三方库，便于 CI 与老设备。
- */
 public final class CastHttpServer {
     private final int port;
     private final String pairCode;
@@ -75,8 +72,8 @@ public final class CastHttpServer {
             if (q >= 0) path = path.substring(0, q);
 
             String pairHeader = "";
-            String line;
             int contentLength = 0;
+            String line;
             while ((line = reader.readLine()) != null && !line.isEmpty()) {
                 int c = line.indexOf(':');
                 if (c > 0) {
@@ -97,43 +94,34 @@ public final class CastHttpServer {
             }
             String body = new String(bodyBuf, 0, read);
 
-            if (!pairCode.equals(pairHeader) && !path.equals(CastProtocol.PATH_STATUS)) {
-                // status 允许无配对探活；其它接口需要配对码
-                if (!path.equals("/")) {
-                    writeJson(s, 403, new JSONObject().put("ok", false).put("error", "pair_required"));
-                    return;
-                }
+            boolean needPair = !(CastProtocol.PATH_STATUS.equals(path) || "/".equals(path));
+            if (needPair && !pairCode.equals(pairHeader)) {
+                writeJson(s, 403, new JSONObject().put("ok", false).put("error", "pair_required"));
+                return;
             }
 
             if ("GET".equals(method) && (CastProtocol.PATH_STATUS.equals(path) || "/".equals(path))) {
-                JSONObject json = new JSONObject()
+                writeJson(s, 200, new JSONObject()
                         .put("ok", true)
                         .put("service", "hongguoTV-phone")
-                        .put("version", "0.1.0")
+                        .put("version", "0.2.0")
                         .put("pairRequired", true)
-                        .put("hasNow", now.url != null && !now.url.isEmpty());
-                writeJson(s, 200, json);
+                        .put("hasNow", now.url != null && !now.url.isEmpty()));
                 return;
             }
             if ("GET".equals(method) && CastProtocol.PATH_NOW.equals(path)) {
-                if (!pairCode.equals(pairHeader)) {
-                    writeJson(s, 403, new JSONObject().put("ok", false).put("error", "pair_required"));
-                    return;
-                }
-                JSONObject json = new JSONObject()
-                        .put("ok", true)
-                        .put("url", now.url == null ? "" : now.url)
-                        .put("title", now.title == null ? "" : now.title)
-                        .put("updatedAt", now.updatedAt);
-                writeJson(s, 200, json);
+                writeJson(s, 200, now.toJson());
                 return;
             }
             if ("POST".equals(method) && CastProtocol.PATH_NOW.equals(path)) {
-                if (!pairCode.equals(pairHeader)) {
-                    writeJson(s, 403, new JSONObject().put("ok", false).put("error", "pair_required"));
+                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+                if (req.has("playlist")) {
+                    JSONArray pl = req.getJSONArray("playlist");
+                    int start = req.optInt("index", 0);
+                    now.setPlaylist(pl, start);
+                    writeJson(s, 200, now.toJson());
                     return;
                 }
-                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
                 String url = req.optString("url", "");
                 String title = req.optString("title", "");
                 if (url.isEmpty() || !(url.startsWith("http://") || url.startsWith("https://"))) {
@@ -141,7 +129,18 @@ public final class CastHttpServer {
                     return;
                 }
                 now.set(url, title);
-                writeJson(s, 200, new JSONObject().put("ok", true).put("url", url).put("title", title));
+                writeJson(s, 200, now.toJson());
+                return;
+            }
+            if ("GET".equals(method) && CastProtocol.PATH_CONTROL.equals(path)) {
+                writeJson(s, 200, now.toJson());
+                return;
+            }
+            if ("POST".equals(method) && CastProtocol.PATH_CONTROL.equals(path)) {
+                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+                String action = req.optString("action", "");
+                now.control(action, req);
+                writeJson(s, 200, now.toJson());
                 return;
             }
             writeJson(s, 404, new JSONObject().put("ok", false).put("error", "not_found"));
