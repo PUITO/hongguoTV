@@ -8,8 +8,8 @@ android {
         applicationId = "com.hongguotv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 400
-        versionName = "0.4.0"
+        versionCode = 410
+        versionName = "0.4.1"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

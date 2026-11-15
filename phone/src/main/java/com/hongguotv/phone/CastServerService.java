@@ -6,14 +6,13 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
-import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
-import android.text.format.Formatter;
 
 import androidx.core.app.NotificationCompat;
 
 import com.hongguotv.shared.CastProtocol;
+import com.hongguotv.shared.NetUtil;
 
 public class CastServerService extends Service {
     public static final String EXTRA_PAIR = "pair";
@@ -47,16 +46,9 @@ public class CastServerService extends Service {
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
-    @SuppressWarnings("deprecation")
     private String localIp() {
-        try {
-            WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-            if (wifi != null && wifi.getConnectionInfo() != null) {
-                int ip = wifi.getConnectionInfo().getIpAddress();
-                if (ip != 0) return Formatter.formatIpAddress(ip);
-            }
-        } catch (Exception ignored) {}
-        return "127.0.0.1";
+        String ip = NetUtil.localIpv4();
+        return ip == null || ip.isEmpty() ? "127.0.0.1" : ip;
     }
 
     private Notification buildNotification() {

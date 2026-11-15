@@ -1,20 +1,18 @@
 package com.hongguotv.tv;
 
+import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.format.Formatter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
 
-import android.app.Activity;
-
 import com.hongguotv.shared.CastProtocol;
+import com.hongguotv.shared.NetUtil;
 import com.hongguotv.shared.QrBitmaps;
 
 import org.json.JSONObject;
@@ -25,6 +23,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
@@ -33,15 +32,15 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView message;
-    private TextView sessionText;
+    private TextView message, sessionText, ipInfo, hint;
     private ImageView qrImage;
     private String session;
+    private String tvIp = "";
     private TvBindServer bindServer;
     private final Runnable pollBound = new Runnable() {
         @Override public void run() {
             if (TvBindState.INSTANCE.bound) {
-                message.setText("已绑定手机 " + TvBindState.INSTANCE.phoneIp + "，正在拉取片源…");
+                message.setText("已绑定手机 " + TvBindState.INSTANCE.phoneIp + "，正在进入播放…");
                 openPlayer(TvBindState.INSTANCE.phoneIp, TvBindState.INSTANCE.phonePort, TvBindState.INSTANCE.pair);
                 return;
             }
@@ -54,18 +53,22 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         message = findViewById(R.id.message);
         sessionText = findViewById(R.id.sessionText);
+        ipInfo = findViewById(R.id.ipInfo);
+        hint = findViewById(R.id.hint);
         qrImage = findViewById(R.id.qrImage);
         EditText ipInput = findViewById(R.id.ipInput);
         EditText pairInput = findViewById(R.id.pairInput);
         Button btn = findViewById(R.id.btnConnect);
+        Button btnRefresh = findViewById(R.id.btnRefreshIp);
 
         session = String.format(Locale.US, "%06d", new Random().nextInt(1_000_000));
         TvBindState.INSTANCE.session = session;
-        String tvIp = localIp();
-        String payload = CastProtocol.tvQrPayload(tvIp, CastProtocol.TV_BIND_PORT, session);
-        Bitmap qr = QrBitmaps.encode(payload, 512);
-        qrImage.setImageBitmap(qr);
-        sessionText.setText("本机 " + tvIp + "\n会话 " + session);
+
+        refreshIpAndQr();
+        btnRefresh.setOnClickListener(v -> {
+            refreshIpAndQr();
+            message.setText("已重新检测本机 IP");
+        });
 
         try {
             bindServer = new TvBindServer(CastProtocol.TV_BIND_PORT, session, () -> ui.post(pollBound));
@@ -73,19 +76,42 @@ public class MainActivity extends Activity {
             message.setText("等待手机扫码绑定…");
             ui.post(pollBound);
         } catch (Exception e) {
-            message.setText("绑定服务启动失败: " + e.getMessage() + "（仍可手动输入）");
+            message.setText("绑定服务启动失败: " + e.getMessage() + "\n请用下方手动连接");
         }
 
         btn.setOnClickListener(v -> {
             String ip = text(ipInput);
             String pair = text(pairInput);
-            if (ip.isEmpty() || pair.length() != 4) {
-                message.setText("手动连接请填写手机 IP 与 4 位配对码");
+            if (ip.isEmpty() || ip.startsWith("0.")) {
+                message.setText("请填写手机的局域网 IP（不是电视 IP）");
                 return;
             }
-            message.setText("连接中…");
+            if (pair.length() != 4) {
+                message.setText("请填写手机上的 4 位配对码");
+                return;
+            }
+            message.setText("正在连接手机 " + ip + " …");
             openPlayer(ip, CastProtocol.DEFAULT_PORT, pair);
         });
+    }
+
+    private void refreshIpAndQr() {
+        tvIp = NetUtil.localIpv4();
+        List<String> all = NetUtil.allIpv4();
+        if (tvIp == null || tvIp.isEmpty()) {
+            ipInfo.setText("本机 IP：未检测到\n请确认电视已连 Wi‑Fi/有线，点「重新检测 IP」");
+            hint.setText("IP 无效时二维码无法绑定。可先在手机查看 IP，用左侧手动连接。");
+            sessionText.setText("会话 " + session + "\nIP 无效，请刷新或手动连接");
+            qrImage.setImageBitmap(null);
+            return;
+        }
+        String extra = all.size() > 1 ? ("\n其他地址: " + all) : "";
+        ipInfo.setText("本机 IP：" + tvIp + extra);
+        String payload = CastProtocol.tvQrPayload(tvIp, CastProtocol.TV_BIND_PORT, session);
+        Bitmap qr = QrBitmaps.encode(payload, 512);
+        qrImage.setImageBitmap(qr);
+        sessionText.setText("会话 " + session + "\n端口 " + CastProtocol.TV_BIND_PORT);
+        hint.setText("用手机「红果推流」扫描右侧二维码完成绑定。\n绑定后由手机统一控制播放与设置。");
     }
 
     private void openPlayer(String ip, int port, String pair) {
@@ -106,7 +132,7 @@ public class MainActivity extends Activity {
                 });
             } catch (Exception e) {
                 String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                ui.post(() -> message.setText("连接失败: " + msg));
+                ui.post(() -> message.setText("连接失败: " + msg + "\n请确认手机已启动推流服务，且在同一 Wi‑Fi"));
             }
         });
     }
@@ -127,18 +153,6 @@ public class MainActivity extends Activity {
         }
         if (code >= 400) throw new IllegalStateException("HTTP " + code + " " + sb);
         return new JSONObject(sb.toString());
-    }
-
-    @SuppressWarnings("deprecation")
-    private String localIp() {
-        try {
-            WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-            if (wifi != null && wifi.getConnectionInfo() != null) {
-                int ip = wifi.getConnectionInfo().getIpAddress();
-                if (ip != 0) return Formatter.formatIpAddress(ip);
-            }
-        } catch (Exception ignored) {}
-        return "0.0.0.0";
     }
 
     private static String text(EditText e) {

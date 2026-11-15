@@ -1,44 +1,147 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="horizontal"
-    android:padding="24dp"
+    android:padding="28dp"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#171B25">
+    android:background="#0F1419">
+
+    <!-- 左侧说明与手动连接 -->
     <LinearLayout
         android:orientation="vertical"
         android:layout_width="0dp"
-        android:layout_weight="1"
-        android:layout_height="match_parent">
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="红果电视 · 扫码绑定" android:textColor="#FFFFFF"
-            android:textSize="26sp" android:textStyle="bold" />
-        <TextView android:id="@+id/hint" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:layout_marginTop="12dp"
-            android:textColor="#CCFFFFFF" android:textSize="16sp"
-            android:text="请用手机「红果推流」扫描右侧二维码完成绑定。也可手动输入手机 IP。" />
-        <EditText android:id="@+id/ipInput" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:layout_marginTop="16dp"
-            android:hint="手机 IP（可选手动）" android:inputType="text"
-            android:textColor="#FFFFFF" android:textColorHint="#88FFFFFF" />
-        <EditText android:id="@+id/pairInput" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:hint="四位配对码（手动时）"
-            android:inputType="number" android:maxLength="4"
-            android:textColor="#FFFFFF" android:textColorHint="#88FFFFFF" />
-        <Button android:id="@+id/btnConnect" android:layout_width="wrap_content"
-            android:layout_height="wrap_content" android:layout_marginTop="12dp"
-            android:text="连接并播放" />
-        <TextView android:id="@+id/message" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:layout_marginTop="12dp"
-            android:textColor="#FFCC66" android:textSize="16sp" />
+        android:layout_weight="1.2"
+        android:layout_height="match_parent"
+        android:paddingEnd="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="红果电视"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textColor="#B0BEC5"
+            android:textSize="16sp"
+            android:text="用手机「红果推流」扫描右侧二维码完成绑定。\n绑定后由手机统一控制播放与设置。" />
+
+        <TextView
+            android:id="@+id/ipInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textColor="#80CBC4"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:text="本机 IP：检测中…" />
+
+        <Button
+            android:id="@+id/btnRefreshIp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="重新检测 IP" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="12dp"
+            android:background="#33FFFFFF" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="扫码失败时：手动连接"
+            android:textColor="#FFCC80"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="① 手机局域网 IP（在手机推流页顶部可见，例如 192.168.1.8）"
+            android:textColor="#90A4AE"
+            android:textSize="14sp" />
+        <EditText
+            android:id="@+id/ipInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入手机 IP，不要填电视 IP"
+            android:inputType="text"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#66FFFFFF"
+            android:nextFocusDown="@id/pairInput" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="② 手机上的 4 位配对码（启动推流服务后显示）"
+            android:textColor="#90A4AE"
+            android:textSize="14sp" />
+        <EditText
+            android:id="@+id/pairInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="四位数字配对码"
+            android:inputType="number"
+            android:maxLength="4"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#66FFFFFF"
+            android:nextFocusDown="@id/btnConnect" />
+
+        <Button
+            android:id="@+id/btnConnect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="连接手机并进入播放" />
+
+        <TextView
+            android:id="@+id/message"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:textColor="#FFECB3"
+            android:textSize="16sp" />
     </LinearLayout>
-    <LinearLayout android:orientation="vertical" android:layout_width="wrap_content"
-        android:layout_height="match_parent" android:gravity="center"
-        android:paddingStart="24dp">
-        <ImageView android:id="@+id/qrImage" android:layout_width="280dp"
-            android:layout_height="280dp" android:contentDescription="绑定二维码" />
-        <TextView android:id="@+id/sessionText" android:layout_width="wrap_content"
-            android:layout_height="wrap_content" android:layout_marginTop="8dp"
-            android:textColor="#FFFFFF" android:textSize="14sp" />
+
+    <!-- 右侧二维码 -->
+    <LinearLayout
+        android:orientation="vertical"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:paddingStart="12dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="手机扫此码绑定"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:layout_marginBottom="10dp" />
+        <ImageView
+            android:id="@+id/qrImage"
+            android:layout_width="300dp"
+            android:layout_height="300dp"
+            android:background="#FFFFFF"
+            android:padding="12dp"
+            android:contentDescription="绑定二维码" />
+        <TextView
+            android:id="@+id/sessionText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:textColor="#B0BEC5"
+            android:textSize="14sp"
+            android:gravity="center" />
     </LinearLayout>
 </LinearLayout>
