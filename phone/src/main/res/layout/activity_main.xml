@@ -2,44 +2,63 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp">
-    <LinearLayout
-        android:orientation="vertical"
-        android:layout_width="match_parent"
+    android:padding="12dp">
+    <LinearLayout android:orientation="vertical" android:layout_width="match_parent"
         android:layout_height="wrap_content">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="红果推流 · 手机端" android:textSize="22sp" android:textStyle="bold" />
+            android:text="红果推流 0.3" android:textSize="20sp" android:textStyle="bold" />
         <TextView android:id="@+id/status" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:layout_marginTop="8dp" android:textSize="14sp" />
+            android:layout_height="wrap_content" android:textSize="13sp" />
         <TextView android:id="@+id/pairCode" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:textSize="26sp" android:textStyle="bold"
-            android:layout_marginTop="4dp" android:text="----" />
-        <ImageView android:id="@+id/qrImage" android:layout_width="220dp" android:layout_height="220dp"
-            android:layout_gravity="center_horizontal" android:layout_marginTop="8dp"
-            android:contentDescription="绑定二维码" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="电视可扫此码，或在电视输入 IP + 配对码。也可点下方「扫电视码」绑定。"
-            android:textSize="12sp" android:layout_marginTop="4dp" />
-
-        <Button android:id="@+id/btnStart" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:text="启动推流服务" />
-        <Button android:id="@+id/btnScanTv" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:text="扫电视二维码绑定" />
-        <Button android:id="@+id/btnStop" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:text="停止服务" />
-
-        <EditText android:id="@+id/urlInput" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:hint="测试播放地址 https://..."
-            android:inputType="textUri" android:minLines="2" />
-        <EditText android:id="@+id/titleInput" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:hint="标题（可选）" android:inputType="text" />
-        <Button android:id="@+id/btnPush" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:text="推送到电视" />
-
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="12dp" android:textStyle="bold" android:text="播放控制（电视跟随）" />
+            android:layout_height="wrap_content" android:textSize="22sp" android:textStyle="bold" />
+        <ImageView android:id="@+id/qrImage" android:layout_width="180dp" android:layout_height="180dp"
+            android:layout_gravity="center_horizontal" android:contentDescription="qr" />
         <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
             android:layout_height="wrap_content">
+            <Button android:id="@+id/btnStart" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="启动服务" />
+            <Button android:id="@+id/btnScanTv" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="扫电视码" />
+            <Button android:id="@+id/btnStop" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="停止" />
+        </LinearLayout>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textStyle="bold" android:text="红果搜索" android:layout_marginTop="8dp" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <EditText android:id="@+id/searchInput" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:hint="剧名关键词" />
+            <Button android:id="@+id/btnSearch" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="搜索" />
+        </LinearLayout>
+        <TextView android:id="@+id/searchResult" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:textSize="13sp" android:textIsSelectable="true" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <EditText android:id="@+id/seriesInput" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:hint="系列ID" android:inputType="number" />
+            <EditText android:id="@+id/epInput" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:hint="集数" android:inputType="number" />
+            <Button android:id="@+id/btnResolve" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:text="解析并推送" />
+        </LinearLayout>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textStyle="bold" android:text="或手动 URL" android:layout_marginTop="6dp" />
+        <EditText android:id="@+id/urlInput" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="https://...mp4" android:inputType="textUri" />
+        <EditText android:id="@+id/titleInput" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="标题" />
+        <Button android:id="@+id/btnPush" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="推送到电视（缓存加速）" />
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textStyle="bold" android:text="遥控" android:layout_marginTop="8dp" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <Button android:id="@+id/btnPrev" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="上一集" />
             <Button android:id="@+id/btnPlay" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:text="播放" />
             <Button android:id="@+id/btnPause" android:layout_width="0dp" android:layout_weight="1"
@@ -47,25 +66,26 @@
             <Button android:id="@+id/btnNext" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:text="下一集" />
         </LinearLayout>
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="倍速" />
         <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
             android:layout_height="wrap_content">
             <Button android:id="@+id/btnSp075" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="0.75" />
+                android:layout_height="wrap_content" android:text="0.75x" />
             <Button android:id="@+id/btnSp10" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="1.0" />
+                android:layout_height="wrap_content" android:text="1x" />
             <Button android:id="@+id/btnSp125" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="1.25" />
+                android:layout_height="wrap_content" android:text="1.25x" />
             <Button android:id="@+id/btnSp15" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="1.5" />
+                android:layout_height="wrap_content" android:text="1.5x" />
             <Button android:id="@+id/btnSp20" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="2.0" />
+                android:layout_height="wrap_content" android:text="2x" />
         </LinearLayout>
-        <androidx.appcompat.widget.SwitchCompat
-            android:id="@+id/switchAutoNext"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="自动连播下一集"
-            android:checked="true" />
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchAutoNext"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="自动连播" android:checked="true" />
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchProxy"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="手机缓存推流（更流畅）" android:checked="true" />
+        <TextView android:id="@+id/cacheStatus" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>

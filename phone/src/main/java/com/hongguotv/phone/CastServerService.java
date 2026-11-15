@@ -6,8 +6,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
+import android.text.format.Formatter;
 
 import androidx.core.app.NotificationCompat;
 
@@ -16,7 +18,13 @@ import com.hongguotv.shared.CastProtocol;
 public class CastServerService extends Service {
     public static final String EXTRA_PAIR = "pair";
     public static final NowPlaying NOW = new NowPlaying();
+    public static MediaCache CACHE;
     private CastHttpServer server;
+
+    @Override public void onCreate() {
+        super.onCreate();
+        CACHE = new MediaCache(this);
+    }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String pair = intent != null ? intent.getStringExtra(EXTRA_PAIR) : "0000";
@@ -24,7 +32,7 @@ public class CastServerService extends Service {
         startForeground(1, buildNotification());
         try {
             if (server != null) server.stop();
-            server = new CastHttpServer(CastProtocol.DEFAULT_PORT, pair, NOW);
+            server = new CastHttpServer(CastProtocol.DEFAULT_PORT, pair, NOW, CACHE, localIp());
             server.start();
         } catch (Exception e) {
             stopSelf();
@@ -39,6 +47,18 @@ public class CastServerService extends Service {
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
+    @SuppressWarnings("deprecation")
+    private String localIp() {
+        try {
+            WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+            if (wifi != null && wifi.getConnectionInfo() != null) {
+                int ip = wifi.getConnectionInfo().getIpAddress();
+                if (ip != 0) return Formatter.formatIpAddress(ip);
+            }
+        } catch (Exception ignored) {}
+        return "127.0.0.1";
+    }
+
     private Notification buildNotification() {
         String channelId = "cast";
         if (Build.VERSION.SDK_INT >= 26) {
@@ -51,7 +71,7 @@ public class CastServerService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, channelId)
                 .setContentTitle("红果推流运行中")
-                .setContentText("端口 " + CastProtocol.DEFAULT_PORT)
+                .setContentText("端口 " + CastProtocol.DEFAULT_PORT + " · 缓存推流")
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentIntent(pi)
                 .build();

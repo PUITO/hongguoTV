@@ -1,0 +1,173 @@
+package com.hongguotv.phone;
+
+import android.content.Context;
+import android.util.Log;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * 磁盘缓存 + 后台预取。支持边下边播（文件可被边写边读）。
+ */
+public final class MediaCache {
+    private static final String TAG = "MediaCache";
+    private final File dir;
+    private final ExecutorService pool = Executors.newFixedThreadPool(2);
+    private final Map<String, Job> jobs = new ConcurrentHashMap<>();
+    private volatile String currentKey = "";
+
+    public MediaCache(Context ctx) {
+        dir = new File(ctx.getCacheDir(), "stream_cache");
+        if (!dir.exists()) dir.mkdirs();
+    }
+
+    public static String keyOf(String url) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] d = md.digest(url.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : d) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return String.valueOf(url.hashCode());
+        }
+    }
+
+    public File fileFor(String url) {
+        return new File(dir, keyOf(url) + ".bin");
+    }
+
+    public synchronized void setCurrent(String url) {
+        if (url == null || url.isEmpty()) return;
+        currentKey = keyOf(url);
+        ensureDownloading(url, true);
+    }
+
+    public void prefetch(String url) {
+        if (url == null || url.isEmpty()) return;
+        ensureDownloading(url, false);
+    }
+
+    private void ensureDownloading(String url, boolean highPriority) {
+        String key = keyOf(url);
+        Job existing = jobs.get(key);
+        if (existing != null && (existing.done.get() || existing.running.get())) return;
+        Job job = new Job(url, key, fileFor(url));
+        jobs.put(key, job);
+        job.future = pool.submit(job);
+        Log.i(TAG, "cache start " + key + " prio=" + highPriority);
+    }
+
+    public Job jobForUrl(String url) {
+        return jobs.get(keyOf(url));
+    }
+
+    public Job currentJob() {
+        return jobs.get(currentKey);
+    }
+
+    public synchronized void clearOld(int keepMax) {
+        File[] files = dir.listFiles();
+        if (files == null || files.length <= keepMax) return;
+        // simple: delete smallest first if over quota ~800MB
+        long total = 0;
+        for (File f : files) total += f.length();
+        if (total < 800L * 1024 * 1024) return;
+        for (File f : files) {
+            if (f.getName().startsWith(currentKey)) continue;
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+        }
+    }
+
+    public static final class Job implements Runnable {
+        final String url;
+        final String key;
+        final File file;
+        final AtomicBoolean running = new AtomicBoolean(false);
+        final AtomicBoolean done = new AtomicBoolean(false);
+        final AtomicBoolean failed = new AtomicBoolean(false);
+        final AtomicLong written = new AtomicLong(0);
+        final AtomicLong contentLength = new AtomicLong(-1);
+        volatile String contentType = "video/mp4";
+        Future<?> future;
+
+        Job(String url, String key, File file) {
+            this.url = url;
+            this.key = key;
+            this.file = file;
+        }
+
+        public boolean isReadyEnough(long minBytes) {
+            return file.exists() && (done.get() || written.get() >= minBytes);
+        }
+
+        @Override public void run() {
+            running.set(true);
+            try {
+                // resume if partial
+                long existing = file.exists() ? file.length() : 0;
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(12000);
+                c.setReadTimeout(30000);
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 HongguoTV-Cache/0.3");
+                if (existing > 0) {
+                    c.setRequestProperty("Range", "bytes=" + existing + "-");
+                }
+                int code = c.getResponseCode();
+                if (code == 200) {
+                    existing = 0; // full body
+                } else if (code != 206 && code != 200) {
+                    failed.set(true);
+                    return;
+                }
+                String ct = c.getContentType();
+                if (ct != null && !ct.isEmpty()) contentType = ct.split(";")[0].trim();
+                long cl = c.getContentLength();
+                if (code == 206) {
+                    // Content-Range: bytes a-b/total
+                    String cr = c.getHeaderField("Content-Range");
+                    if (cr != null && cr.contains("/")) {
+                        try {
+                            contentLength.set(Long.parseLong(cr.substring(cr.indexOf('/') + 1).trim()));
+                        } catch (Exception ignored) {}
+                    }
+                } else if (cl > 0) {
+                    contentLength.set(cl);
+                }
+                try (InputStream in = c.getInputStream();
+                     OutputStream out = new FileOutputStream(file, existing > 0 && code == 206)) {
+                    if (existing > 0 && code == 206) written.set(existing);
+                    byte[] buf = new byte[64 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) >= 0) {
+                        out.write(buf, 0, n);
+                        written.addAndGet(n);
+                    }
+                    out.flush();
+                }
+                done.set(true);
+                Log.i(TAG, "cache done " + key + " bytes=" + written.get());
+            } catch (Exception e) {
+                Log.w(TAG, "cache fail " + key, e);
+                failed.set(true);
+            } finally {
+                running.set(false);
+            }
+        }
+    }
+}

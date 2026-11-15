@@ -6,12 +6,17 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -22,14 +27,18 @@ public final class CastHttpServer {
     private final int port;
     private final String pairCode;
     private final NowPlaying now;
+    private final MediaCache cache;
+    private final String phoneIp;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private ServerSocket serverSocket;
     private ExecutorService pool;
 
-    public CastHttpServer(int port, String pairCode, NowPlaying now) {
+    public CastHttpServer(int port, String pairCode, NowPlaying now, MediaCache cache, String phoneIp) {
         this.port = port;
         this.pairCode = pairCode;
         this.now = now;
+        this.cache = cache;
+        this.phoneIp = phoneIp;
     }
 
     public void start() throws IOException {
@@ -60,7 +69,7 @@ public final class CastHttpServer {
 
     private void handle(Socket socket) {
         try (Socket s = socket) {
-            s.setSoTimeout(15000);
+            s.setSoTimeout(60000);
             BufferedReader reader = new BufferedReader(new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
             String requestLine = reader.readLine();
             if (requestLine == null || requestLine.isEmpty()) return;
@@ -68,10 +77,12 @@ public final class CastHttpServer {
             if (parts.length < 2) return;
             String method = parts[0].toUpperCase(Locale.ROOT);
             String path = parts[1];
-            int q = path.indexOf('?');
-            if (q >= 0) path = path.substring(0, q);
+            String query = "";
+            int qi = path.indexOf('?');
+            if (qi >= 0) { query = path.substring(qi + 1); path = path.substring(0, qi); }
 
             String pairHeader = "";
+            String rangeHeader = "";
             int contentLength = 0;
             String line;
             while ((line = reader.readLine()) != null && !line.isEmpty()) {
@@ -83,6 +94,7 @@ public final class CastHttpServer {
                     if ("Content-Length".equalsIgnoreCase(name)) {
                         try { contentLength = Integer.parseInt(value); } catch (NumberFormatException ignored) {}
                     }
+                    if ("Range".equalsIgnoreCase(name)) rangeHeader = value;
                 }
             }
             char[] bodyBuf = new char[Math.max(0, contentLength)];
@@ -94,32 +106,40 @@ public final class CastHttpServer {
             }
             String body = new String(bodyBuf, 0, read);
 
-            boolean needPair = !(CastProtocol.PATH_STATUS.equals(path) || "/".equals(path));
-            if (needPair && !pairCode.equals(pairHeader)) {
+            // stream endpoints: no pair required (TV player may not send custom headers on VideoView)
+            if ("GET".equals(method) && (CastProtocol.PATH_STREAM_CURRENT.equals(path) || path.startsWith("/stream/"))) {
+                serveStream(s, rangeHeader);
+                return;
+            }
+
+            boolean publicPath = CastProtocol.PATH_STATUS.equals(path) || "/".equals(path);
+            if (!publicPath && !pairCode.equals(pairHeader)) {
                 writeJson(s, 403, new JSONObject().put("ok", false).put("error", "pair_required"));
                 return;
             }
 
-            if ("GET".equals(method) && (CastProtocol.PATH_STATUS.equals(path) || "/".equals(path))) {
+            if ("GET".equals(method) && publicPath) {
                 writeJson(s, 200, new JSONObject()
                         .put("ok", true)
                         .put("service", "hongguoTV-phone")
-                        .put("version", "0.2.0")
+                        .put("version", "0.3.0")
                         .put("pairRequired", true)
-                        .put("hasNow", now.url != null && !now.url.isEmpty()));
+                        .put("hasNow", now.sourceUrl != null && !now.sourceUrl.isEmpty()));
                 return;
             }
             if ("GET".equals(method) && CastProtocol.PATH_NOW.equals(path)) {
-                writeJson(s, 200, now.toJson());
+                writeJson(s, 200, now.toJson(phoneIp, port));
                 return;
             }
             if ("POST".equals(method) && CastProtocol.PATH_NOW.equals(path)) {
                 JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+                boolean proxy = req.optBoolean("useProxy", true);
                 if (req.has("playlist")) {
                     JSONArray pl = req.getJSONArray("playlist");
                     int start = req.optInt("index", 0);
-                    now.setPlaylist(pl, start);
-                    writeJson(s, 200, now.toJson());
+                    now.setPlaylist(pl, start, proxy);
+                    onSourceChanged();
+                    writeJson(s, 200, now.toJson(phoneIp, port));
                     return;
                 }
                 String url = req.optString("url", "");
@@ -128,37 +148,208 @@ public final class CastHttpServer {
                     writeJson(s, 400, new JSONObject().put("ok", false).put("error", "invalid_url"));
                     return;
                 }
-                now.set(url, title);
-                writeJson(s, 200, now.toJson());
+                now.set(url, title, proxy);
+                onSourceChanged();
+                writeJson(s, 200, now.toJson(phoneIp, port));
                 return;
             }
-            if ("GET".equals(method) && CastProtocol.PATH_CONTROL.equals(path)) {
-                writeJson(s, 200, now.toJson());
+            if (("GET".equals(method) || "POST".equals(method)) && CastProtocol.PATH_CONTROL.equals(path)) {
+                if ("POST".equals(method)) {
+                    JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+                    now.control(req.optString("action", ""), req);
+                    onSourceChanged();
+                }
+                writeJson(s, 200, now.toJson(phoneIp, port));
                 return;
             }
-            if ("POST".equals(method) && CastProtocol.PATH_CONTROL.equals(path)) {
-                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-                String action = req.optString("action", "");
-                now.control(action, req);
-                writeJson(s, 200, now.toJson());
+            if ("GET".equals(method) && CastProtocol.PATH_CACHE_STATUS.equals(path)) {
+                MediaCache.Job job = cache.currentJob();
+                JSONObject j = new JSONObject().put("ok", true);
+                if (job != null) {
+                    j.put("written", job.written.get())
+                            .put("contentLength", job.contentLength.get())
+                            .put("done", job.done.get())
+                            .put("failed", job.failed.get())
+                            .put("running", job.running.get());
+                }
+                writeJson(s, 200, j);
+                return;
+            }
+            if ("GET".equals(method) && CastProtocol.PATH_SEARCH.equals(path)) {
+                String kw = queryParam(query, "q");
+                try {
+                    writeJson(s, 200, new JSONObject().put("ok", true).put("items", HongguoClient.search(kw)));
+                } catch (Exception e) {
+                    writeJson(s, 500, new JSONObject().put("ok", false).put("error", String.valueOf(e.getMessage())));
+                }
+                return;
+            }
+            if ("GET".equals(method) && CastProtocol.PATH_DETAIL.equals(path)) {
+                String sid = queryParam(query, "seriesId");
+                try {
+                    writeJson(s, 200, HongguoClient.detail(sid).put("ok", true));
+                } catch (Exception e) {
+                    writeJson(s, 500, new JSONObject().put("ok", false).put("error", String.valueOf(e.getMessage())));
+                }
                 return;
             }
             writeJson(s, 404, new JSONObject().put("ok", false).put("error", "not_found"));
         } catch (Exception e) {
-            try {
-                writeJson(socket, 500, new JSONObject().put("ok", false).put("error", "server"));
-            } catch (Exception ignored) {}
+            try { writeJson(socket, 500, new JSONObject().put("ok", false).put("error", "server")); } catch (Exception ignored) {}
         }
+    }
+
+    private void onSourceChanged() {
+        String src = now.sourceUrl;
+        if (src != null && !src.isEmpty() && now.useProxy) {
+            cache.setCurrent(src);
+            // prefetch next
+            synchronized (now) {
+                if (now.index + 1 < now.playlist.length()) {
+                    JSONObject next = now.playlist.optJSONObject(now.index + 1);
+                    if (next != null) {
+                        String nu = next.optString("url", "");
+                        if (!nu.isEmpty()) cache.prefetch(nu);
+                    }
+                }
+            }
+            cache.clearOld(8);
+        }
+    }
+
+    private void serveStream(Socket s, String rangeHeader) throws Exception {
+        String src = now.sourceUrl;
+        if (src == null || src.isEmpty()) {
+            writeText(s, 404, "no source");
+            return;
+        }
+        cache.setCurrent(src);
+        MediaCache.Job job = cache.jobForUrl(src);
+        // Wait briefly for first bytes
+        for (int i = 0; i < 50; i++) {
+            if (job != null && job.file.exists() && job.file.length() > 64 * 1024) break;
+            if (job != null && job.failed.get()) break;
+            Thread.sleep(100);
+        }
+        File file = cache.fileFor(src);
+        if (file.exists() && file.length() > 0) {
+            serveFileRange(s, file, job != null ? job.contentType : "video/mp4", rangeHeader, job);
+            return;
+        }
+        // fallback: relay upstream
+        relayUpstream(s, src, rangeHeader);
+    }
+
+    private void serveFileRange(Socket s, File file, String contentType, String rangeHeader, MediaCache.Job job) throws Exception {
+        long fileLen = file.length();
+        long total = job != null && job.contentLength.get() > 0 ? job.contentLength.get() : fileLen;
+        long start = 0, end = fileLen - 1;
+        boolean partial = false;
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+            partial = true;
+            String r = rangeHeader.substring(6).trim();
+            String[] ab = r.split("-");
+            try { start = Long.parseLong(ab[0]); } catch (Exception ignored) {}
+            if (ab.length > 1 && !ab[1].isEmpty()) {
+                try { end = Long.parseLong(ab[1]); } catch (Exception ignored) {}
+            }
+            if (end >= fileLen) end = fileLen - 1;
+            if (start < 0) start = 0;
+        }
+        if (start > end || start >= fileLen) {
+            writeText(s, 416, "range");
+            return;
+        }
+        long len = end - start + 1;
+        StringBuilder h = new StringBuilder();
+        h.append(partial ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n");
+        h.append("Content-Type: ").append(contentType).append("\r\n");
+        h.append("Accept-Ranges: bytes\r\n");
+        h.append("Content-Length: ").append(len).append("\r\n");
+        if (partial) {
+            h.append("Content-Range: bytes ").append(start).append("-").append(end).append("/").append(total > 0 ? total : fileLen).append("\r\n");
+        }
+        h.append("Connection: close\r\n\r\n");
+        OutputStream out = s.getOutputStream();
+        out.write(h.toString().getBytes(StandardCharsets.US_ASCII));
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            raf.seek(start);
+            byte[] buf = new byte[64 * 1024];
+            long left = len;
+            while (left > 0) {
+                int n = raf.read(buf, 0, (int) Math.min(buf.length, left));
+                if (n < 0) break;
+                out.write(buf, 0, n);
+                left -= n;
+            }
+        }
+        out.flush();
+    }
+
+    private void relayUpstream(Socket s, String src, String rangeHeader) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(src).openConnection();
+        c.setConnectTimeout(10000);
+        c.setReadTimeout(30000);
+        c.setInstanceFollowRedirects(true);
+        c.setRequestProperty("User-Agent", "Mozilla/5.0 HongguoTV-Proxy/0.3");
+        if (rangeHeader != null && !rangeHeader.isEmpty()) c.setRequestProperty("Range", rangeHeader);
+        int code = c.getResponseCode();
+        InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
+        if (in == null) { writeText(s, 502, "upstream"); return; }
+        String ct = c.getContentType();
+        if (ct == null) ct = "video/mp4";
+        StringBuilder h = new StringBuilder();
+        h.append("HTTP/1.1 ").append(code).append(" OK\r\n");
+        h.append("Content-Type: ").append(ct).append("\r\n");
+        h.append("Accept-Ranges: bytes\r\n");
+        String cr = c.getHeaderField("Content-Range");
+        if (cr != null) h.append("Content-Range: ").append(cr).append("\r\n");
+        int cl = c.getContentLength();
+        if (cl > 0) h.append("Content-Length: ").append(cl).append("\r\n");
+        h.append("Connection: close\r\n\r\n");
+        OutputStream out = s.getOutputStream();
+        out.write(h.toString().getBytes(StandardCharsets.US_ASCII));
+        byte[] buf = new byte[64 * 1024];
+        int n;
+        while ((n = in.read(buf)) >= 0) out.write(buf, 0, n);
+        out.flush();
+        in.close();
+    }
+
+    private static String queryParam(String query, String name) {
+        if (query == null) return "";
+        for (String part : query.split("&")) {
+            int e = part.indexOf('=');
+            String k = e < 0 ? part : part.substring(0, e);
+            if (name.equals(k)) {
+                try {
+                    return java.net.URLDecoder.decode(e < 0 ? "" : part.substring(e + 1), "UTF-8");
+                } catch (Exception ex) {
+                    return e < 0 ? "" : part.substring(e + 1);
+                }
+            }
+        }
+        return "";
     }
 
     private static void writeJson(Socket socket, int code, JSONObject json) throws IOException {
         byte[] data = json.toString().getBytes(StandardCharsets.UTF_8);
-        String reason = code == 200 ? "OK" : code == 403 ? "Forbidden" : code == 404 ? "Not Found" : "Error";
+        String reason = code == 200 ? "OK" : "ERR";
         String headers = "HTTP/1.1 " + code + " " + reason + "\r\n"
                 + "Content-Type: application/json; charset=utf-8\r\n"
                 + "Content-Length: " + data.length + "\r\n"
                 + "Connection: close\r\n"
                 + "Access-Control-Allow-Origin: *\r\n\r\n";
+        OutputStream out = socket.getOutputStream();
+        out.write(headers.getBytes(StandardCharsets.US_ASCII));
+        out.write(data);
+        out.flush();
+    }
+
+    private static void writeText(Socket socket, int code, String text) throws IOException {
+        byte[] data = text.getBytes(StandardCharsets.UTF_8);
+        String headers = "HTTP/1.1 " + code + " ERR\r\nContent-Type: text/plain\r\nContent-Length: "
+                + data.length + "\r\nConnection: close\r\n\r\n";
         OutputStream out = socket.getOutputStream();
         out.write(headers.getBytes(StandardCharsets.US_ASCII));
         out.write(data);
