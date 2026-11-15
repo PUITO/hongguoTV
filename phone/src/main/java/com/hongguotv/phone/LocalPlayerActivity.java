@@ -81,6 +81,13 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
 
             index = getIntent().getIntExtra(EXTRA_INDEX, 0);
             try {
+                String sid0 = getIntent().getStringExtra(EXTRA_SERIES_ID);
+                if (sid0 != null) {
+                    WatchHistory.updateProgress(this, sid0, index,
+                            getIntent().getStringExtra(EXTRA_TITLE), null);
+                }
+            } catch (Exception ignored) {}
+            try {
                 String raw = getIntent().getStringExtra(EXTRA_DETAIL_JSON);
                 detail = raw == null ? null : new JSONObject(raw);
             } catch (Exception e) {
@@ -401,6 +408,10 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
             }
             index = idx;
             titleView.setText(detail.optString("title") + " 第" + (index + 1) + "集");
+            try {
+                WatchHistory.updateProgress(this, seriesId, index,
+                        detail.optString("title"), detail.optString("cover"));
+            } catch (Exception ignored) {}
             openPlayer(u);
         } catch (Exception e) {
             Toast.makeText(this, "切换失败", Toast.LENGTH_SHORT).show();

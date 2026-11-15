@@ -39,7 +39,13 @@ public final class SeriesListAdapter extends BaseAdapter {
             JSONObject o = data.getJSONObject(position);
             title.setText(o.optString("title", "未知"));
             String intro = o.optString("intro", "");
-            if (intro.isEmpty()) intro = "ID " + o.optString("seriesId");
+            int lastEp = o.optInt("lastEpisode", 0);
+            if (lastEp <= 0 && o.has("lastIndex")) lastEp = o.optInt("lastIndex") + 1;
+            if (lastEp > 0) {
+                intro = "看到第 " + lastEp + " 集" + (intro.isEmpty() ? "" : " · " + intro);
+            } else if (intro.isEmpty()) {
+                intro = "ID " + o.optString("seriesId");
+            }
             sub.setText(intro);
             ImageLoader.load(cover, o.optString("cover"));
         } catch (Exception e) {

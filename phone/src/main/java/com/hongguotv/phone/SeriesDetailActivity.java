@@ -61,6 +61,17 @@ public class SeriesDetailActivity extends Activity {
                         + DeviceSettings.INSTANCE.preferredQuality);
                 if (sourceNote != null) sourceNote.setText(detail.optString("note"));
                 episodeAdapter.setData(eps);
+                int resume = WatchHistory.lastIndex(this, seriesId);
+                if (eps != null && resume >= 0 && resume < eps.length()) {
+                    episodeAdapter.setSelected(resume);
+                    try {
+                        GridView g = findViewById(R.id.episodeGrid);
+                        if (g != null) g.setSelection(resume);
+                    } catch (Exception ignored) {}
+                    meta.append("\n上次看到第 " + (resume + 1) + " 集");
+                } else {
+                    episodeAdapter.setSelected(0);
+                }
                 try {
                     WatchHistory.add(this, new JSONObject()
                             .put("seriesId", seriesId)
@@ -148,6 +159,8 @@ public class SeriesDetailActivity extends Activity {
                             if (CastServerService.CACHE != null && !fUrl.startsWith("file://") && !fUrl.startsWith("/")) {
                                 CastServerService.CACHE.setCurrent(fUrl);
                             }
+                            WatchHistory.updateProgress(this, seriesId, idx,
+                                    detail.optString("title"), detail.optString("cover"));
                             EpisodePrefetcher.prefetchAfter(detail, idx);
                             Toast.makeText(this, "已推送电视 · " + fQuality
                                     + (fUrl.startsWith("file") ? "（明文）" : ""), Toast.LENGTH_SHORT).show();
@@ -163,6 +176,8 @@ public class SeriesDetailActivity extends Activity {
                         i.putExtra(LocalPlayerActivity.EXTRA_INDEX, idx);
                         i.putExtra(LocalPlayerActivity.EXTRA_DETAIL_JSON, detail.toString());
                         startActivity(i);
+                        WatchHistory.updateProgress(this, seriesId, idx,
+                                detail.optString("title"), detail.optString("cover"));
                         EpisodePrefetcher.prefetchAfter(detail, idx);
                     }
                 });
