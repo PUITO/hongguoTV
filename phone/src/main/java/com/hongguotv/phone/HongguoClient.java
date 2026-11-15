@@ -1,5 +1,7 @@
 package com.hongguotv.phone;
 
+import com.hongguotv.phone.app.AppPlayClient;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -130,16 +132,47 @@ public final class HongguoClient {
                     .put("locked", !free)
                     .put("seriesId", seriesId));
         }
+        // App 通道：尝试为锁定集补全播放地址（设备注册 + 签名取流）
+        int appOk = 0;
+        try {
+            for (int i = 0; i < episodes.length(); i++) {
+                JSONObject ep = episodes.getJSONObject(i);
+                if (!ep.optBoolean("locked") && !ep.optString("url").isEmpty()) continue;
+                String vid = ep.optString("vid");
+                if (vid.isEmpty()) continue;
+                try {
+                    JSONObject app = AppPlayClient.fetchEpisode(vid, DeviceSettings.INSTANCE.preferredQuality);
+                    String appUrl = app.optString("url");
+                    if (!appUrl.isEmpty()) {
+                        ep.put("url", appUrl);
+                        ep.put("locked", false);
+                        ep.put("quality", app.optString("quality", "app"));
+                        ep.put("source", "app");
+                        appOk++;
+                    }
+                } catch (Exception ignoreOne) {
+                    // 单集失败继续
+                }
+                if (i >= 12 && appOk == 0) break; // 签名若整体失败，避免长时间阻塞
+            }
+        } catch (Exception ignored) {}
+        String channel = appOk > 0 ? "app+web" : "web-public";
+        String note;
+        if (appOk > 0) {
+            note = "App 源已补全 " + appOk + " 集；其余可用公共源或稍后重试";
+        } else if (accessible < episodeCnt) {
+            note = "公共源可播前 " + accessible + " 集；App 签名取流未成功时可稍后重试";
+        } else {
+            note = "公共源";
+        }
         return new JSONObject()
                 .put("seriesId", seriesId)
                 .put("title", title == null ? ("剧集 " + seriesId) : title)
                 .put("cover", cover == null ? "" : cover)
                 .put("episodeCnt", Math.max(episodeCnt, episodes.length()))
-                .put("accessible", accessible)
-                .put("sourceChannel", "web-public")
-                .put("note", accessible < episodeCnt
-                        ? ("公共源可播前 " + accessible + " 集；完整集数/高清需 App 签名源")
-                        : "公共源")
+                .put("accessible", accessible + appOk)
+                .put("sourceChannel", channel)
+                .put("note", note)
                 .put("episodes", episodes);
     }
 
