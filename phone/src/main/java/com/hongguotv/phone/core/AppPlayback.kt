@@ -284,16 +284,33 @@ object AppPlayback {
     private fun parseStreams(root: JSONObject): List<Stream> {
         val out = ArrayList<Stream>()
         val data = root.optJSONObject("data") ?: root
+        // drama / 官方：data 直接以 vid 为 key → { video_model: "<json string>", ... }
+        val keys = data.keys()
+        var entryCount = 0
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val v = data.opt(k)
+            entryCount++
+            when (v) {
+                is JSONObject -> {
+                    collectModel(v.opt("video_model"), out)
+                    collectModel(v, out) // 有时 video_list 在顶层
+                }
+                is String -> if (v.startsWith("{")) collectModel(v, out)
+            }
+        }
         collectModel(data.opt("video_model"), out)
         data.optJSONObject("video_model_data")?.let { vmd ->
-            val keys = vmd.keys()
-            while (keys.hasNext()) collectModel(vmd.opt(keys.next()), out)
+            val ks = vmd.keys()
+            while (ks.hasNext()) collectModel(vmd.opt(ks.next()), out)
         }
         data.optJSONArray("video_model_list")?.let { arr ->
             for (i in 0 until arr.length()) collectModel(arr.opt(i), out)
         }
-        // TAB 接口常见结构
-        data.optJSONObject("video_data")?.let { collectModel(it.opt("video_model"), out) }
+        AppLog.i("parseStreams entries=$entryCount streams=${out.size}")
+        if (out.isEmpty()) {
+            AppLog.w("解析无流 dataKeys=${data.keys().asSequence().toList().take(5)} sample=${AppLog.clip(data.toString(), 300)}")
+        }
         return out.distinctBy { it.url }
     }
 
@@ -302,48 +319,100 @@ object AppPlayback {
         try {
             val model = when (raw) {
                 is JSONObject -> raw
-                is String -> if (raw.startsWith("{")) JSONObject(raw) else return
+                is String -> if (raw.trimStart().startsWith("{")) JSONObject(raw) else return
                 else -> return
+            }
+            // video_model 可能再包一层
+            val nested = model.opt("video_model")
+            if (nested is String && nested.trimStart().startsWith("{")) {
+                collectModel(nested, out)
+            } else if (nested is JSONObject) {
+                collectModel(nested, out)
+            }
+            val keySeedRaw = model.optString("key_seed").ifBlank {
+                model.optJSONObject("video_list")?.let { null } ?: ""
             }
             val keySeed = model.optString("key_seed").takeIf { it.isNotBlank() }?.let {
                 runCatching { decode64(it) }.getOrNull()
             }
-            val videoList = model.optJSONObject("video_list") ?: return
-            val keys = videoList.keys()
-            while (keys.hasNext()) {
-                val item = videoList.optJSONObject(keys.next()) ?: continue
-                val candidates = buildList {
-                    add(item.optString("main_url"))
-                    add(item.optString("backup_url"))
-                    item.optJSONArray("backup_url_list")?.let { arr ->
-                        for (i in 0 until arr.length()) add(arr.optString(i))
+            var videoList = model.optJSONObject("video_list")
+            // 有些结构 video_list 是数组
+            if (videoList == null) {
+                val arr = model.optJSONArray("video_list")
+                if (arr != null) {
+                    for (i in 0 until arr.length()) {
+                        val item = arr.optJSONObject(i) ?: continue
+                        extractItem(item, keySeed, out)
                     }
+                    return
                 }
-                var url = ""
-                for (c in candidates) {
-                    if (c.isBlank()) continue
-                    url = decodePlayUrl(c, keySeed)
-                    if (url.startsWith("http")) break
-                }
-                if (!url.startsWith("http")) continue
-                val h = item.optInt("vheight", item.optInt("height", 0))
-                var label = item.optString("definition", item.optString("quality_desc", ""))
-                if (label.isBlank() && h > 0) label = "${h}p"
-                out += Stream(url, label.ifBlank { "app" }, h)
             }
-        } catch (_: Exception) {
+            if (videoList == null) return
+            val vkeys = videoList.keys()
+            var n = 0
+            var ok = 0
+            while (vkeys.hasNext()) {
+                val item = videoList.optJSONObject(vkeys.next()) ?: continue
+                n++
+                if (extractItem(item, keySeed, out)) ok++
+            }
+            if (n > 0) AppLog.i("video_list items=$n decoded=$ok keySeed=${keySeed != null}")
+        } catch (e: Exception) {
+            AppLog.w("collectModel: ${e.message}")
         }
+    }
+
+    private fun extractItem(item: JSONObject, keySeed: ByteArray?, out: MutableList<Stream>): Boolean {
+        val candidates = buildList {
+            add(item.optString("main_url"))
+            add(item.optString("backup_url"))
+            add(item.optString("main_url_no_redirect"))
+            item.optJSONArray("backup_url_list")?.let { arr ->
+                for (i in 0 until arr.length()) add(arr.optString(i))
+            }
+            // 有时嵌套 play_addr / url_list
+            item.optJSONObject("play_addr")?.optJSONArray("url_list")?.let { arr ->
+                for (i in 0 until arr.length()) add(arr.optString(i))
+            }
+        }
+        var url = ""
+        var lastErr = ""
+        for (c in candidates) {
+            if (c.isNullOrBlank()) continue
+            try {
+                url = decodePlayUrl(c, keySeed)
+                if (url.startsWith("http")) break
+                lastErr = "not-http:${AppLog.clip(url, 40)}"
+            } catch (e: Exception) {
+                lastErr = e.message ?: "decode"
+            }
+        }
+        if (!url.startsWith("http")) {
+            if (candidates.any { it.isNotBlank() }) {
+                AppLog.w("url解码失败 ${AppLog.clip(candidates.first { it.isNotBlank() }, 50)} err=$lastErr")
+            }
+            return false
+        }
+        val h = item.optInt("vheight", item.optInt("height", item.optInt("video_height", 0)))
+        var label = item.optString("definition", item.optString("quality_desc", item.optString("quality", "")))
+        if (label.isBlank() && h > 0) label = "${h}p"
+        out += Stream(url, label.ifBlank { "app" }, h)
+        return true
     }
 
     private fun decodePlayUrl(value: String, keySeed: ByteArray?): String {
         if (value.startsWith("http")) return value
+        // 1) 标准 base64 明文 URL
         runCatching {
-            val plain = String(decode64(value), Charsets.UTF_8)
+            val plain = String(decode64(value), Charsets.UTF_8).trim()
             if (plain.startsWith("http")) return plain
         }
+        // 2) Spade + key_seed 解密（官方加密地址）
         if (keySeed != null) {
             runCatching { return MediaCrypto.decryptUrl(value, keySeed) }
+                .onFailure { AppLog.w("MediaCrypto.decryptUrl: ${it.message}") }
         }
+        // 3) 无 key 时仍尝试按 a8 头解密会失败，保留原值
         return value
     }
 
