@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.HongguoTv" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+    <style name="Theme.HongguoTv" parent="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
         <item name="android:windowBackground">@color/tv_bg</item>
-        <item name="android:colorPrimary">@color/tv_primary</item>
         <item name="android:textColorPrimary">@color/tv_text</item>
         <item name="android:textColorSecondary">@color/tv_text_dim</item>
-        <item name="android:buttonStyle">@style/Widget.HongguoTv.Button</item>
+        <item name="android:buttonStyle">@style/WidgetHongguoTvButton</item>
     </style>
-    <style name="Widget.HongguoTv.Button" parent="@android:style/Widget.Material.Button">
+    <style name="WidgetHongguoTvButton" parent="@android:style/Widget.DeviceDefault.Button">
         <item name="android:background">@drawable/bg_tv_button</item>
         <item name="android:textColor">@color/tv_text</item>
         <item name="android:paddingLeft">20dp</item>
