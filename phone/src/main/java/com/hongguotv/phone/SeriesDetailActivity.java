@@ -164,11 +164,10 @@ public class SeriesDetailActivity extends Activity {
                 AppLog.e("播放取流异常: " + e.getMessage() + " last=" + com.hongguotv.phone.core.AppPlayback.lastError(), e);
                 ui.post(() -> {
                     pd.dismiss();
-                    Toast.makeText(this, "取流失败: " + e.getMessage()
-                            + "
-" + com.hongguotv.phone.core.AppPlayback.lastError()
-                            + "
-请到设置→运行日志查看", Toast.LENGTH_LONG).show();
+                    String msg = "取流失败: " + e.getMessage()
+                            + " | " + com.hongguotv.phone.core.AppPlayback.lastError()
+                            + " | 请到设置-运行日志查看";
+                    Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
                 });
             }
         });
