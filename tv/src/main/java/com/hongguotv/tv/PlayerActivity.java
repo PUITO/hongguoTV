@@ -186,7 +186,8 @@ public class PlayerActivity extends Activity {
         try {
             PlaybackParams params = new PlaybackParams();
             params.setSpeed(speed);
-            video.setPlaybackParams(params);
+            // API 23+: VideoView#setPlaybackParams
+            video.getClass().getMethod("setPlaybackParams", PlaybackParams.class).invoke(video, params);
         } catch (Exception ignored) {}
     }
 
