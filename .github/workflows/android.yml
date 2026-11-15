@@ -1,0 +1,61 @@
+name: Build APKs
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant wrapper (generate if missing)
+        run: |
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.9
+          fi
+          chmod +x gradlew
+
+      - name: Build phone + tv debug APKs
+        run: ./gradlew :phone:assembleDebug :tv:assembleDebug --stacktrace
+
+      - name: Upload phone APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-debug
+          path: phone/build/outputs/apk/debug/*.apk
+
+      - name: Upload TV APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-debug
+          path: tv/build/outputs/apk/debug/*.apk
+
+      - name: Create prerelease on main
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build #${{ github.run_number }}
+          prerelease: true
+          files: |
+            phone/build/outputs/apk/debug/*.apk
+            tv/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

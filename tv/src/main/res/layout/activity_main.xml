@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:padding="32dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#171B25">
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="红果电视 · 连接手机"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+    <EditText
+        android:id="@+id/ipInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:hint="手机局域网 IP，例如 192.168.1.8"
+        android:inputType="text"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#88FFFFFF"
+        android:nextFocusDown="@id/pairInput" />
+    <EditText
+        android:id="@+id/pairInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="四位配对码"
+        android:inputType="number"
+        android:maxLength="4"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#88FFFFFF"
+        android:nextFocusDown="@id/btnConnect" />
+    <Button
+        android:id="@+id/btnConnect"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="连接并播放"
+        android:nextFocusUp="@id/pairInput" />
+    <TextView
+        android:id="@+id/message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textColor="#CCFFFFFF"
+        android:textSize="16sp"
+        android:text="请先在手机端启动「红果推流」，并保持同一 WiFi。" />
+</LinearLayout>
