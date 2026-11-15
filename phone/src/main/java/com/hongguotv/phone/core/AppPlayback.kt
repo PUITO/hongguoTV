@@ -182,7 +182,12 @@ object AppPlayback {
         return best
     }
 
-    /** 按稳定性排序：未加密优先 → 接近目标清晰度 → 避免盲目 1080 */
+    /**
+     * 选流排序（对齐 hongguo-drama / 社区实测）：
+     * - 1080p 多为 bytevc1=HEVC，系统可解
+     * - 720及以下多为 bytevc2，系统 MediaPlayer 只能出声无画
+     * drama 桌面端对 bvc2 用内置 FFmpeg 转 H.264；手机端无 bvc2 解码时必须优先 1080p HEVC
+     */
     @JvmStatic
     fun rankStreams(list: List<Stream>, preferred: String?): List<Stream> {
         if (list.isEmpty()) return emptyList()
@@ -193,20 +198,24 @@ object AppPlayback {
             "360p" -> 360
             "480p" -> 480
             "540p" -> 540
-            "1080p" -> 1080
             "720p" -> 720
-            else -> 720
+            "1080p" -> 1080
+            else -> 1080
         }
         fun heightOf(s: Stream): Int {
             if (s.height > 0) return s.height
             return Regex("(\\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
         }
         fun codecPenalty(s: Stream): Int {
-            val c = s.codec.lowercase()
+            val c = (s.codec + " " + s.quality).lowercase()
             return when {
-                c.contains("h264") || c.contains("avc") -> 0
-                c.contains("bytevc1") || c.contains("hvc1") || c.contains("hevc") -> 10
-                else -> 5
+                "h264" in c || "avc1" in c || "avc" in c -> 0
+                "bytevc1" in c || "hvc1" in c || "hevc" in c || "h265" in c -> 5
+                "bytevc2" in c || "bvc2" in c -> 1000
+                // 无 codec 标注时：1080 当 HEVC，低清当可疑 bvc2
+                s.height >= 1080 || "1080" in s.quality -> 8
+                s.height in 1..720 || Regex("360|480|540|720").containsMatchIn(s.quality) -> 200
+                else -> 50
             }
         }
         return list.sortedWith(
@@ -214,7 +223,11 @@ object AppPlayback {
                 .thenBy { codecPenalty(it) }
                 .thenBy { s ->
                     val h = heightOf(s)
-                    if (h == 0) 5000 else kotlin.math.abs(h - want)
+                    when {
+                        h >= 1080 -> 0
+                        h == 0 -> 5000
+                        else -> 100 + kotlin.math.abs(h - want)
+                    }
                 }
                 .thenByDescending { heightOf(it) },
         )

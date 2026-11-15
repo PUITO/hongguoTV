@@ -29,9 +29,26 @@ public final class AppPlayClient {
         int limit = Math.min(4, ranked.size());
         for (int i = 0; i < limit; i++) {
             AppPlayback.Stream stream = ranked.get(i);
+            String codec = stream.getCodec() == null ? "" : stream.getCodec();
+            String cq = (codec + " " + stream.getQuality()).toLowerCase();
+            if (cq.contains("bytevc2") || cq.contains("bvc2")) {
+                AppLog.w("跳过 ByteVC2（系统无法解画） q=" + stream.getQuality() + " codec=" + codec);
+                continue;
+            }
+            // 无 codec 时：低清高度高度可疑，优先跳过若已有更高档可试
+            if (codec.isEmpty() && stream.getHeight() > 0 && stream.getHeight() < 1080 && i + 1 < limit) {
+                boolean has1080 = false;
+                for (int j = i + 1; j < ranked.size(); j++) {
+                    if (ranked.get(j).getHeight() >= 1080) { has1080 = true; break; }
+                }
+                if (has1080) {
+                    AppLog.w("暂缓低清无codec档 q=" + stream.getQuality() + " h=" + stream.getHeight());
+                    continue;
+                }
+            }
             AppLog.i("尝试清晰度#" + (i + 1) + " q=" + stream.getQuality()
                     + " h=" + stream.getHeight() + " enc=" + stream.getEncrypted()
-                    + " codec=" + stream.getCodec());
+                    + " codec=" + codec);
             try {
                 JSONObject o = new JSONObject()
                         .put("url", stream.getUrl())
