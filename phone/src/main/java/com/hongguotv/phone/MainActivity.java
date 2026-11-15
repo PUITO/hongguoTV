@@ -222,6 +222,10 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.navSource).setOnClickListener(v -> showPage(1));
         findViewById(R.id.navSettings).setOnClickListener(v -> showPage(2));
         findViewById(R.id.navRemote).setOnClickListener(v -> showPage(3));
+        View openLogs = findViewById(R.id.btnOpenLogs);
+        if (openLogs != null) openLogs.setOnClickListener(v ->
+                startActivity(new Intent(this, LogActivity.class)));
+        AppLog.i("MainActivity 启动");
 
         findViewById(R.id.btnStart).setOnClickListener(v -> startServer());
         findViewById(R.id.btnStop).setOnClickListener(v -> stopServer());

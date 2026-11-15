@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.hongguotv.phone.core
 
+import com.hongguotv.phone.AppLog
+
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -82,30 +84,42 @@ object AppPlayback {
     @JvmStatic
     fun fetchStreams(vid: String): List<Stream> {
         lastError = ""
+        AppLog.i("取流开始 vid=$vid")
         val id = try {
             obtainIdentity()
         } catch (e: Exception) {
             lastError = "注册失败: ${e.message}"
+            AppLog.e("设备注册失败", e)
             throw e
         }
+        AppLog.i("设备 did=${id.deviceId} iid=${id.installId} cdid=${id.cdid.take(8)}…")
         val errors = mutableListOf<String>()
-        // 优先：VIDEO_TAB GET（drama 主路径）
         try {
             val list = fetchTabGet(id, vid)
-            if (list.isNotEmpty()) return list
+            if (list.isNotEmpty()) {
+                AppLog.i("TAB成功 streams=${list.size} best=${list.first().quality}/${list.first().height}p")
+                return list
+            }
             errors += "TAB空响应"
+            AppLog.w("TAB 无可用清晰度")
         } catch (e: Exception) {
             errors += "TAB:${e.message}"
+            AppLog.w("TAB 失败: ${e.message}")
         }
-        // 回退：VIDEO_API POST gzip
         try {
             val list = fetchApiPost(id, vid)
-            if (list.isNotEmpty()) return list
+            if (list.isNotEmpty()) {
+                AppLog.i("POST成功 streams=${list.size} best=${list.first().quality}")
+                return list
+            }
             errors += "POST空模型"
+            AppLog.w("POST 无可用清晰度")
         } catch (e: Exception) {
             errors += "POST:${e.message}"
+            AppLog.w("POST 失败: ${e.message}")
         }
         lastError = errors.joinToString(" | ")
+        AppLog.e("取流全部失败: $lastError")
         return emptyList()
     }
 
@@ -151,6 +165,7 @@ object AppPlayback {
         conn.outputStream.use { it.write(body) }
         val code = conn.responseCode
         val text = readBody(conn)
+        AppLog.i("注册 HTTP $code body=${AppLog.clip(text, 180)}")
         if (code >= 400) throw IllegalStateException("register HTTP $code ${text.take(120)}")
         val registered = DeviceRegister.parse(text)
             ?: throw IllegalStateException("register parse: ${text.take(160)}")
@@ -159,6 +174,7 @@ object AppPlayback {
         ) {
             throw IllegalStateException("register empty id")
         }
+        AppLog.i("注册成功 did=${registered.deviceId} iid=${registered.installId} new=${registered.newUser}")
         return Identity(registered.deviceId, registered.installId, cdid)
     }
 
@@ -180,6 +196,7 @@ object AppPlayback {
         val query = encodeQuery(params)
         val url = VIDEO_TAB + "?" + query
         val signed = PlayerSigner.headers(query, null, khronos)
+        AppLog.i("TAB 签名 argusLen=${signed["x-argus"]?.length ?: 0} ladon=${AppLog.clip(signed["x-ladon"] ?: "", 24)}")
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,
             "Accept" to "application/json; charset=utf-8,application/x-protobuf",
@@ -197,12 +214,15 @@ object AppPlayback {
         val conn = open(url, "GET", headers)
         val code = conn.responseCode
         val text = readBody(conn)
+        AppLog.i("TAB HTTP $code len=${text.length} body=${AppLog.clip(text, 220)}")
         if (code >= 400) throw IllegalStateException("HTTP $code")
         if (text.isBlank()) throw IllegalStateException("empty body")
         val root = JSONObject(text)
         val biz = root.optInt("code", root.optInt("Code", 0))
         if (biz != 0) throw IllegalStateException("code $biz")
-        return parseStreams(root)
+        val streams = parseStreams(root)
+        AppLog.i("TAB 解析 streams=${streams.size}")
+        return streams
     }
 
     private fun fetchApiPost(id: Identity, vid: String): List<Stream> {
@@ -230,6 +250,7 @@ object AppPlayback {
         val query = encodeQuery(params)
         val url = VIDEO_API + "?" + query
         val signed = PlayerSigner.headers(query, body, khronos)
+        AppLog.i("POST 签名 argusLen=${signed["x-argus"]?.length ?: 0} bodyGzip=${body.size}")
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,
             "Accept" to "application/json; charset=utf-8,application/x-protobuf",
@@ -249,12 +270,15 @@ object AppPlayback {
         conn.outputStream.use { it.write(body) }
         val code = conn.responseCode
         val text = readBody(conn)
+        AppLog.i("POST HTTP $code len=${text.length} body=${AppLog.clip(text, 220)}")
         if (code >= 400) throw IllegalStateException("HTTP $code")
         if (text.isBlank()) throw IllegalStateException("empty body")
         val root = JSONObject(text)
         val biz = root.optInt("code", root.optInt("Code", 0))
         if (biz != 0) throw IllegalStateException("code $biz")
-        return parseStreams(root)
+        val streams = parseStreams(root)
+        AppLog.i("POST 解析 streams=${streams.size}")
+        return streams
     }
 
     private fun parseStreams(root: JSONObject): List<Stream> {

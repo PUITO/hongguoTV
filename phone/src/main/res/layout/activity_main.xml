@@ -141,6 +141,13 @@
                     android:layout_marginTop="12dp" android:text="推荐清晰度（公共源目前多为 360p）" />
                 <Spinner android:id="@+id/qualitySpinner" android:layout_width="match_parent"
                     android:layout_height="48dp" />
+                <Button android:id="@+id/btnOpenLogs" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="20dp"
+                    android:text="运行日志（查看/导出取流诊断）" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" android:textSize="12sp"
+                    android:textColor="@color/hg_text_secondary"
+                    android:text="播放失败时打开日志，点「导出」分享给开发排查。" />
             </LinearLayout>
         </ScrollView>
 

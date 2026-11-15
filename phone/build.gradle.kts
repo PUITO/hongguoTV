@@ -17,8 +17,8 @@ android {
         applicationId = "com.hongguotv.phone"
         minSdk = 24
         targetSdk = 35
-        versionCode = 620
-        versionName = "0.6.2"
+        versionCode = 630
+        versionName = "0.6.3"
     }
     signingConfigs {
         create("release") {
@@ -52,6 +52,7 @@ dependencies {
     implementation(project(":shared"))
     implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.core:core:1.13.1")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")

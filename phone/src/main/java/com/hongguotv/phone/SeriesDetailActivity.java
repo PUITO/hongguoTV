@@ -16,6 +16,7 @@ import org.json.JSONObject;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+
 public class SeriesDetailActivity extends Activity {
     public static final String EXTRA_SERIES_ID = "seriesId";
     public static final String EXTRA_TITLE = "title";
@@ -78,6 +79,7 @@ public class SeriesDetailActivity extends Activity {
             return;
         }
         final int idx = episodeAdapter.getSelected();
+        AppLog.i("用户点击" + (pushTv ? "推送" : "播放") + " 选中集=" + episodeAdapter.getSelected());
         ProgressDialog pd = ProgressDialog.show(this, null, "正在取流（App/公共）…", true, true);
         net.execute(() -> {
             try {
@@ -100,8 +102,12 @@ public class SeriesDetailActivity extends Activity {
                         resolved = ep;
                     }
                 } else {
+                    AppLog.i("调用 resolveEpisode vid=" + vid + " ep=" + (idx + 1) + " locked=" + locked);
                     resolved = HongguoClient.resolveEpisode(seriesId, vid, idx + 1,
                             DeviceSettings.INSTANCE.preferredQuality);
+                    AppLog.i("resolve 结果 source=" + resolved.optString("source")
+                            + " quality=" + resolved.optString("quality")
+                            + " url=" + AppLog.clip(resolved.optString("url"), 80));
                 }
                 String url = resolved.optString("url");
                 if (url.isEmpty()) throw new IllegalStateException("取流失败 "
@@ -155,10 +161,14 @@ public class SeriesDetailActivity extends Activity {
                     }
                 });
             } catch (Exception e) {
+                AppLog.e("播放取流异常: " + e.getMessage() + " last=" + com.hongguotv.phone.core.AppPlayback.lastError(), e);
                 ui.post(() -> {
                     pd.dismiss();
                     Toast.makeText(this, "取流失败: " + e.getMessage()
-                            + "\n" + com.hongguotv.phone.core.AppPlayback.lastError(), Toast.LENGTH_LONG).show();
+                            + "
+" + com.hongguotv.phone.core.AppPlayback.lastError()
+                            + "
+请到设置→运行日志查看", Toast.LENGTH_LONG).show();
                 });
             }
         });

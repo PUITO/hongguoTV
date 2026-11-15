@@ -163,13 +163,17 @@ public final class HongguoClient {
             }
             // Always attempt App for locked / higher quality
             try {
+                AppLog.i("AppPlayClient.fetchEpisode vid=" + vid + " pref=" + preferredQuality);
                 org.json.JSONObject app = com.hongguotv.phone.app.AppPlayClient.fetchEpisode(vid, preferredQuality);
                 if (app != null && app.optString("url").length() > 0) {
+                    AppLog.i("App 取流成功 q=" + app.optString("quality"));
                     return app.put("title", "第" + episode + "集").put("seriesId", seriesId).put("episode", episode);
                 }
+                AppLog.w("App 取流返回空 url last=" + com.hongguotv.phone.core.AppPlayback.lastError());
             } catch (Exception e) {
-                // fall through to public
+                AppLog.e("App 取流异常", e);
             }
+            AppLog.w("回退公共 360p vid=" + vid);
             String publicUrl = ORIGIN + "/video/public/" + vid + "/360p.mp4";
             return new JSONObject()
                     .put("url", publicUrl)
