@@ -185,22 +185,12 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
         }, "open-player").start();
     }
 
-    /** 优先本机代理（保证 UA），否则直连 */
+    /**
+     * CDN 对 Java Http 常 403，但对系统 MediaPlayer 可能放行。
+     * 本地播放：先直连 CDN；TV 推流仍走手机代理缓存。
+     */
     private String buildPlayUrl(String url) {
-        try {
-            ensureCastServiceBlocking();
-            CastServerService svc = CastServerService.INSTANCE;
-            if (svc != null && svc.getServer() != null) {
-                String proxy = svc.getServer().proxyUrl(url);
-                if (proxy != null && proxy.contains("127.0.0.1")) {
-                    AppLog.i("播放地址用本机代理 " + proxy);
-                    return proxy;
-                }
-            }
-        } catch (Exception e) {
-            AppLog.w("代理构建失败: " + e.getMessage());
-        }
-        AppLog.w("回退直连 CDN");
+        AppLog.i("本地播放直连 CDN（MediaPlayer）");
         return url;
     }
 

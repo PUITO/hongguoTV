@@ -314,20 +314,75 @@ public final class CastHttpServer {
     }
 
     private void relayUpstream(Socket s, String src, String rangeHeader) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(src).openConnection();
-        c.setConnectTimeout(10000);
-        c.setReadTimeout(30000);
-        c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C)");
-        c.setRequestProperty("Referer", "https://www.hongguoduanju.com/");
-        c.setRequestProperty("Accept", "*/*");
-        if (rangeHeader != null && !rangeHeader.isEmpty()) c.setRequestProperty("Range", rangeHeader);
-        int code = c.getResponseCode();
-        AppLog.i("relayUpstream HTTP " + code + " ct=" + c.getContentType() + " cl=" + c.getContentLength());
-        InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
-        if (in == null) { AppLog.w("relayUpstream no stream"); writeText(s, 502, "upstream"); return; }
+        String[] uas = new String[] {
+                "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)",
+                "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C)",
+                "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+                "okhttp/4.9.3",
+        };
+        HttpURLConnection c = null;
+        int code = 0;
+        for (String ua : uas) {
+            try {
+                if (c != null) try { c.disconnect(); } catch (Exception ignored) {}
+                c = (HttpURLConnection) new URL(src).openConnection();
+                c.setConnectTimeout(12000);
+                c.setReadTimeout(30000);
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", ua);
+                c.setRequestProperty("Accept", "*/*");
+                c.setRequestProperty("Accept-Encoding", "identity");
+                c.setRequestProperty("Connection", "keep-alive");
+                // 部分 CDN 对 Referer 敏感：先不带，失败再带
+                if (rangeHeader != null && !rangeHeader.isEmpty()) {
+                    c.setRequestProperty("Range", rangeHeader);
+                }
+                code = c.getResponseCode();
+                AppLog.i("relayUpstream try ua=" + AppLog.clip(ua, 40) + " HTTP " + code
+                        + " ct=" + c.getContentType() + " cl=" + c.getContentLength());
+                if (code == 200 || code == 206) break;
+                // log small error body
+                try {
+                    InputStream es = c.getErrorStream();
+                    if (es != null) {
+                        byte[] eb = new byte[200];
+                        int n = es.read(eb);
+                        if (n > 0) AppLog.w("upstream err body=" + new String(eb, 0, n, StandardCharsets.UTF_8));
+                    }
+                } catch (Exception ignored) {}
+            } catch (Exception e) {
+                AppLog.w("relay try fail: " + e.getMessage());
+            }
+        }
+        if (c == null || (code != 200 && code != 206)) {
+            // 最后再试一次带 Referer
+            try {
+                if (c != null) try { c.disconnect(); } catch (Exception ignored) {}
+                c = (HttpURLConnection) new URL(src).openConnection();
+                c.setConnectTimeout(12000);
+                c.setReadTimeout(30000);
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", uas[0]);
+                c.setRequestProperty("Referer", "https://www.hongguoduanju.com/");
+                c.setRequestProperty("Accept", "*/*");
+                c.setRequestProperty("Accept-Encoding", "identity");
+                if (rangeHeader != null && !rangeHeader.isEmpty()) c.setRequestProperty("Range", rangeHeader);
+                code = c.getResponseCode();
+                AppLog.i("relayUpstream +Referer HTTP " + code);
+            } catch (Exception e) {
+                AppLog.e("relayUpstream final", e);
+                writeText(s, 502, "upstream");
+                return;
+            }
+        }
+        InputStream in = (code >= 400) ? c.getErrorStream() : c.getInputStream();
+        if (in == null || code >= 400) {
+            AppLog.w("relayUpstream fail code=" + code);
+            writeText(s, code >= 400 ? code : 502, "upstream " + code);
+            return;
+        }
         String ct = c.getContentType();
-        if (ct == null) ct = "video/mp4";
+        if (ct == null || ct.contains("text/html")) ct = "video/mp4";
         StringBuilder h = new StringBuilder();
         h.append("HTTP/1.1 ").append(code).append(" OK\r\n");
         h.append("Content-Type: ").append(ct).append("\r\n");
@@ -341,9 +396,14 @@ public final class CastHttpServer {
         out.write(h.toString().getBytes(StandardCharsets.US_ASCII));
         byte[] buf = new byte[64 * 1024];
         int n;
-        while ((n = in.read(buf)) >= 0) out.write(buf, 0, n);
+        long total = 0;
+        while ((n = in.read(buf)) >= 0) {
+            out.write(buf, 0, n);
+            total += n;
+        }
         out.flush();
         in.close();
+        AppLog.i("relayUpstream done bytes=" + total);
     }
 
     private static String queryParam(String query, String name) {

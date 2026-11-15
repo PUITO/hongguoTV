@@ -82,10 +82,14 @@ public class PlayerActivity extends Activity {
         String t = getIntent().getStringExtra(EXTRA_TITLE);
         titleView.setText(t == null || t.isEmpty() ? "播放中" : t);
 
-        controller = new MediaController(this);
-        controller.setAnchorView(video);
-        controller.setMediaPlayer(video);
-        video.setMediaController(controller);
+        try {
+            controller = new MediaController(this);
+            controller.setAnchorView(video);
+            controller.setMediaPlayer(video);
+            video.setMediaController(controller);
+        } catch (Exception e) {
+            controller = null;
+        }
 
         // Hide static bottom buttons — MediaController is primary UI
         View btnPrev = findViewById(R.id.btnPrev);
@@ -112,10 +116,14 @@ public class PlayerActivity extends Activity {
             controller.show(4000);
         });
 
-        if (url != null && !url.isEmpty()) playUrl(url);
-        else Toast.makeText(this, "等待手机推送…", Toast.LENGTH_LONG).show();
-        showOverlay();
-        ui.post(poll);
+        try {
+            if (url != null && !url.isEmpty()) playUrl(url);
+            else Toast.makeText(this, "等待手机推送…", Toast.LENGTH_LONG).show();
+            showOverlay();
+            ui.post(poll);
+        } catch (Exception e) {
+            Toast.makeText(this, "播放器异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void applySettings(JSONObject settings) {

@@ -51,6 +51,11 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        TvBindState.INSTANCE.load(this);
+        if (TvBindState.INSTANCE.bound) {
+            // 已绑定则直接进播放器，避免每次都要扫码
+            ui.post(() -> openPlayer(TvBindState.INSTANCE.phoneIp, TvBindState.INSTANCE.phonePort, TvBindState.INSTANCE.pair));
+        }
         message = findViewById(R.id.message);
         sessionText = findViewById(R.id.sessionText);
         ipInfo = findViewById(R.id.ipInfo);
@@ -115,25 +120,42 @@ public class MainActivity extends Activity {
     }
 
     private void openPlayer(String ip, int port, String pair) {
+        if (ip == null || ip.isEmpty()) {
+            message.setText("手机 IP 为空");
+            return;
+        }
+        message.setText("连接手机 " + ip + " …");
         net.execute(() -> {
+            String play = "";
+            String title = "等待推送";
             try {
                 String nowUrl = "http://" + ip + ":" + port + CastProtocol.PATH_NOW;
                 JSONObject now = httpGet(nowUrl, pair);
-                String play = now.optString("url", "");
-                String title = now.optString("title", "");
-                ui.post(() -> {
+                play = now.optString("playUrl", now.optString("sourceUrl", ""));
+                title = now.optString("title", "等待推送");
+            } catch (Exception e) {
+                // 无当前片源也进播放器，等手机推送
+            }
+            final String fPlay = play;
+            final String fTitle = title;
+            ui.post(() -> {
+                try {
+                    TvBindState.INSTANCE.phoneIp = ip;
+                    TvBindState.INSTANCE.phonePort = port;
+                    TvBindState.INSTANCE.pair = pair;
+                    TvBindState.INSTANCE.bound = true;
+                    TvBindState.INSTANCE.save(MainActivity.this);
                     Intent i = new Intent(this, PlayerActivity.class);
-                    i.putExtra(PlayerActivity.EXTRA_URL, play);
-                    i.putExtra(PlayerActivity.EXTRA_TITLE, title);
                     i.putExtra(PlayerActivity.EXTRA_PHONE_IP, ip);
                     i.putExtra(PlayerActivity.EXTRA_PHONE_PORT, port);
                     i.putExtra(PlayerActivity.EXTRA_PAIR, pair);
+                    i.putExtra(PlayerActivity.EXTRA_URL, fPlay);
+                    i.putExtra(PlayerActivity.EXTRA_TITLE, fTitle);
                     startActivity(i);
-                });
-            } catch (Exception e) {
-                String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                ui.post(() -> message.setText("连接失败: " + msg + "\n请确认手机已启动推流服务，且在同一 Wi‑Fi"));
-            }
+                } catch (Exception e) {
+                    message.setText("打开播放器失败: " + e.getMessage());
+                }
+            });
         });
     }
 

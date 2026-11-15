@@ -120,20 +120,12 @@ public final class MediaCache {
             try {
                 // resume if partial
                 long existing = file.exists() ? file.length() : 0;
-                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-                c.setConnectTimeout(12000);
-                c.setReadTimeout(30000);
-                c.setInstanceFollowRedirects(true);
-                c.setRequestProperty("User-Agent", "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C)");
-        c.setRequestProperty("Referer", "https://www.hongguoduanju.com/");
-        c.setRequestProperty("Accept", "*/*");
-                if (existing > 0) {
-                    c.setRequestProperty("Range", "bytes=" + existing + "-");
-                }
+                HttpURLConnection c = openUpstream(url, existing);
+                if (c == null) { failed.set(true); return; }
                 int code = c.getResponseCode();
                 if (code == 200) {
                     existing = 0; // full body
-                } else if (code != 206 && code != 200) {
+                } else if (code != 206) {
                     failed.set(true);
                     return;
                 }
