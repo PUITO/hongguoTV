@@ -6,6 +6,9 @@ import android.media.PlaybackParams;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
 import android.widget.MediaController;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -26,56 +29,93 @@ public class LocalPlayerActivity extends Activity {
     private MediaController controller;
     private JSONObject detail;
     private int index;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private String pendingUrl;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_local_player);
-        video = findViewById(R.id.video);
-        titleView = findViewById(R.id.title);
-        index = getIntent().getIntExtra(EXTRA_INDEX, 0);
         try {
-            String raw = getIntent().getStringExtra(EXTRA_DETAIL_JSON);
-            detail = raw == null ? null : new JSONObject(raw);
-        } catch (Exception e) {
-            detail = null;
-        }
-        String url = getIntent().getStringExtra(EXTRA_URL);
-        String title = getIntent().getStringExtra(EXTRA_TITLE);
-        ensureCastService();
-        url = toPlayableUrl(url);
-        titleView.setText(title == null ? "播放" : title);
-
-        controller = new MediaController(this);
-        controller.setAnchorView(video);
-        controller.setMediaPlayer(video);
-        video.setMediaController(controller);
-        video.setOnPreparedListener(mp -> {
+            setContentView(R.layout.activity_local_player);
+            video = findViewById(R.id.video);
+            titleView = findViewById(R.id.title);
+            index = getIntent().getIntExtra(EXTRA_INDEX, 0);
             try {
-                float speed = DeviceSettings.INSTANCE.defaultSpeed;
-                if (Build.VERSION.SDK_INT >= 23) {
-                    PlaybackParams params = mp.getPlaybackParams();
-                    params.setSpeed(speed);
-                    mp.setPlaybackParams(params);
-                }
-            } catch (Exception ignored) {}
-            video.start();
-            controller.show(3000);
-        });
-        video.setOnCompletionListener(mp -> playIndex(index + 1));
-        video.setOnErrorListener((mp, what, extra) -> {
-            AppLog.e("VideoView error what=" + what + " extra=" + extra);
-            Toast.makeText(this, "播放失败 what=" + what + "，可尝试推送到电视", Toast.LENGTH_LONG).show();
-            return true;
-        });
+                String raw = getIntent().getStringExtra(EXTRA_DETAIL_JSON);
+                detail = raw == null ? null : new JSONObject(raw);
+            } catch (Exception e) {
+                detail = null;
+            }
+            String url = getIntent().getStringExtra(EXTRA_URL);
+            String title = getIntent().getStringExtra(EXTRA_TITLE);
+            titleView.setText(title == null ? "播放" : title);
 
-        findViewById(R.id.btnPrev).setOnClickListener(v -> playIndex(index - 1));
-        findViewById(R.id.btnNext).setOnClickListener(v -> playIndex(index + 1));
-        findViewById(R.id.btnPush).setOnClickListener(v -> pushCurrent());
+            controller = new MediaController(this);
+            controller.setAnchorView(video);
+            controller.setMediaPlayer(video);
+            video.setMediaController(controller);
+            video.setOnPreparedListener(mp -> {
+                try {
+                    float speed = DeviceSettings.INSTANCE.defaultSpeed;
+                    if (Build.VERSION.SDK_INT >= 23) {
+                        PlaybackParams params = mp.getPlaybackParams();
+                        params.setSpeed(speed);
+                        mp.setPlaybackParams(params);
+                    }
+                } catch (Exception ignored) {}
+                video.start();
+                try { controller.show(3000); } catch (Exception ignored) {}
+            });
+            video.setOnCompletionListener(mp -> playIndex(index + 1));
+            video.setOnErrorListener((mp, what, extra) -> {
+                AppLog.e("VideoView error what=" + what + " extra=" + extra);
+                Toast.makeText(this, "播放失败 what=" + what, Toast.LENGTH_LONG).show();
+                return true;
+            });
 
-        if (url != null && !url.isEmpty()) {
-            AppLog.i("VideoView 打开 " + AppLog.clip(url, 100));
-            video.setVideoURI(Uri.parse(url));
+            // 可选按钮（布局里可能没有）
+            setClick(R.id.btnPrev, v -> playIndex(index - 1));
+            setClick(R.id.btnNext, v -> playIndex(index + 1));
+            setClick(R.id.btnPush, v -> pushCurrent());
+
+            pendingUrl = url;
+            // 不阻塞主线程：异步尝试代理，再开播
+            startPlaybackSafely(url);
+        } catch (Exception e) {
+            AppLog.e("LocalPlayer onCreate 崩溃", e);
+            Toast.makeText(this, "播放页异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            finish();
         }
+    }
+
+    private void setClick(int id, View.OnClickListener l) {
+        View v = findViewById(id);
+        if (v != null) v.setOnClickListener(l);
+    }
+
+    private void startPlaybackSafely(String url) {
+        if (url == null || url.isEmpty()) {
+            Toast.makeText(this, "无播放地址", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread(() -> {
+            String play = url;
+            try {
+                ensureCastService();
+                play = toPlayableUrl(url);
+            } catch (Exception e) {
+                AppLog.w("代理准备失败，直连: " + e.getMessage());
+            }
+            final String finalUrl = play;
+            ui.post(() -> {
+                try {
+                    AppLog.i("VideoView 打开 " + AppLog.clip(finalUrl, 100));
+                    video.setVideoURI(Uri.parse(finalUrl));
+                } catch (Exception e) {
+                    AppLog.e("setVideoURI 失败", e);
+                    Toast.makeText(this, "无法打开视频: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+        }, "play-proxy").start();
     }
 
     private void ensureCastService() {
@@ -84,10 +124,10 @@ public class LocalPlayerActivity extends Activity {
             Intent i = new Intent(this, CastServerService.class);
             String pair = "0000";
             try {
-                // pair stored in preferences via MainActivity flow
                 pair = getSharedPreferences("device_settings", MODE_PRIVATE)
                         .getString("pairCode", "0000");
             } catch (Exception ignored) {}
+            if (pair == null || pair.isEmpty()) pair = "0000";
             i.putExtra(CastServerService.EXTRA_PAIR, pair);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
             else startService(i);
@@ -131,9 +171,7 @@ public class LocalPlayerActivity extends Activity {
             }
             index = idx;
             titleView.setText(detail.optString("title") + " 第" + (index + 1) + "集");
-            ensureCastService();
-            video.setVideoURI(Uri.parse(toPlayableUrl(u)));
-            video.start();
+            startPlaybackSafely(u);
         } catch (Exception e) {
             Toast.makeText(this, "切换失败", Toast.LENGTH_SHORT).show();
         }
