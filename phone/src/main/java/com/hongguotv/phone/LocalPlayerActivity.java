@@ -47,6 +47,7 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
     private Surface surface;
     private JSONObject detail;
     private int index;
+    private String seriesId;
     private String currentUrl;
     private boolean surfaceReady;
     private boolean userSeeking;
@@ -80,10 +81,15 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
             texture.setSurfaceTextureListener(this);
 
             index = getIntent().getIntExtra(EXTRA_INDEX, 0);
+            seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
+            if (seriesId == null || seriesId.isEmpty()) {
+                try {
+                    if (detail != null) seriesId = detail.optString("seriesId");
+                } catch (Exception ignored) {}
+            }
             try {
-                String sid0 = getIntent().getStringExtra(EXTRA_SERIES_ID);
-                if (sid0 != null) {
-                    WatchHistory.updateProgress(this, sid0, index,
+                if (seriesId != null && !seriesId.isEmpty()) {
+                    WatchHistory.updateProgress(this, seriesId, index,
                             getIntent().getStringExtra(EXTRA_TITLE), null);
                 }
             } catch (Exception ignored) {}
@@ -409,8 +415,13 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
             index = idx;
             titleView.setText(detail.optString("title") + " 第" + (index + 1) + "集");
             try {
-                WatchHistory.updateProgress(this, seriesId, index,
-                        detail.optString("title"), detail.optString("cover"));
+                String sid = seriesId;
+                if ((sid == null || sid.isEmpty()) && detail != null) sid = detail.optString("seriesId");
+                if (sid != null && !sid.isEmpty()) {
+                    WatchHistory.updateProgress(this, sid, index,
+                            detail != null ? detail.optString("title") : null,
+                            detail != null ? detail.optString("cover") : null);
+                }
             } catch (Exception ignored) {}
             openPlayer(u);
         } catch (Exception e) {
