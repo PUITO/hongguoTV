@@ -61,7 +61,10 @@ object Sm3Native {
         data[source.size] = 0x80.toByte()
         val bitLen = source.size.toLong() * 8
         for (i in 0 until 8) data[data.size - 8 + i] = ((bitLen ushr ((7 - i) * 8)) and 0xff).toByte()
-        val state = intArrayOf(0x7380166f, 0x4914b2b9, 0x172442d7, 0xda8a0600, 0xa96f30bc, 0x163138aa, 0xe38dee4d, 0xb0fb0e4e)
+        val state = intArrayOf(
+            0x7380166f.toInt(), 0x4914b2b9.toInt(), 0x172442d7.toInt(), 0xda8a0600.toInt(),
+            0xa96f30bc.toInt(), 0x163138aa.toInt(), 0xe38dee4d.toInt(), 0xb0fb0e4e.toInt()
+        )
         val words = IntArray(68)
         fun rot(x: Int, n: Int): Int { val k = n and 31; return (x shl k) or (x ushr (32 - k)) }
         var offset = 0
@@ -79,7 +82,7 @@ object Sm3Native {
             var e = state[4]; var f = state[5]; var g = state[6]; var h = state[7]
             for (i in 0 until 64) {
                 val a12 = rot(a, 12)
-                val ss1 = rot(a12 + e + rot(if (i < 16) 0x79cc4519 else 0x7a879d8a, i), 7)
+                val ss1 = rot(a12 + e + rot(if (i < 16) 0x79cc4519.toInt() else 0x7a879d8a.toInt(), i), 7)
                 val ss2 = ss1 xor a12
                 val ff = if (i < 16) a xor b xor c else (a and b) or (a and c) or (b and c)
                 val gg = if (i < 16) e xor f xor g else (e and f) or (e.inv() and g)
