@@ -16,8 +16,8 @@ android {
         applicationId = "com.hongguotv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 500
-        versionName = "0.5.0"
+        versionCode = 510
+        versionName = "0.5.1"
     }
     signingConfigs {
         create("release") {

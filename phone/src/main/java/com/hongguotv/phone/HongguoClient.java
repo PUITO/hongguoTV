@@ -7,139 +7,175 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 红果公开站解析（网页兜底）。不依赖 WebView BigInt 签名。
- * 站点与选择器可能随上游变更，失败时允许手动填 URL。
+ * 红果官网解析：首页推荐 + 关键词过滤 + 播放页公开 mp4。
  */
 public final class HongguoClient {
-    public static final String ORIGIN = "https://www.hongguoduanju.com";
+    public static final String ORIGIN = "https://hongguoduanju.com";
     private static final String UA = "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36";
 
+    public static JSONArray homeFeed() throws Exception {
+        String html = get(ORIGIN + "/");
+        return parseSeriesList(html);
+    }
+
     public static JSONArray search(String keyword) throws Exception {
-        String q = URLEncoder.encode(keyword == null ? "" : keyword, "UTF-8");
-        String html = get(ORIGIN + "/search?q=" + q);
-        if (html.isEmpty()) html = get(ORIGIN + "/search/" + q);
+        String kw = keyword == null ? "" : keyword.trim();
+        JSONArray home = homeFeed();
+        if (kw.isEmpty()) return home;
         JSONArray out = new JSONArray();
-        // series links: /detail/123 or /book/123 or data-id
-        Pattern p = Pattern.compile("href=\"([^\"]*(?:detail|book|series|drama)/(\\d+)[^\"]*)\"[^>]*>([^<]{0,80})", Pattern.CASE_INSENSITIVE);
-        Matcher m = p.matcher(html);
-        int guard = 0;
-        while (m.find() && guard++ < 40) {
-            String id = m.group(2);
-            String title = m.group(3).replaceAll("\\s+", " ").trim();
-            if (title.length() < 1) title = "剧集 " + id;
-            boolean dup = false;
+        for (int i = 0; i < home.length(); i++) {
+            JSONObject o = home.getJSONObject(i);
+            String title = o.optString("title", "");
+            String intro = o.optString("intro", "");
+            if (title.contains(kw) || intro.contains(kw)) out.put(o);
+        }
+        // 再拉播放页搜索词不走加密 API 时，至少保证首页命中；
+        // 额外尝试 search 页 HTML（部分环境可能内嵌）
+        try {
+            String q = java.net.URLEncoder.encode(kw, "UTF-8");
+            String html = get(ORIGIN + "/search/" + q);
+            JSONArray extra = parseSeriesList(html);
+            Map<String, JSONObject> map = new LinkedHashMap<>();
             for (int i = 0; i < out.length(); i++) {
-                if (id.equals(out.getJSONObject(i).optString("seriesId"))) { dup = true; break; }
+                JSONObject o = out.getJSONObject(i);
+                map.put(o.optString("seriesId"), o);
             }
-            if (dup) continue;
-            out.put(new JSONObject()
-                    .put("seriesId", id)
-                    .put("title", title)
-                    .put("path", m.group(1)));
-        }
-        // fallback: any /player/sid/vid
-        if (out.length() == 0) {
-            Pattern p2 = Pattern.compile("/player/(\\d+)/(\\d+)");
-            Matcher m2 = p2.matcher(html);
-            while (m2.find() && out.length() < 20) {
-                String sid = m2.group(1);
-                boolean dup = false;
-                for (int i = 0; i < out.length(); i++) {
-                    if (sid.equals(out.getJSONObject(i).optString("seriesId"))) { dup = true; break; }
-                }
-                if (dup) continue;
-                out.put(new JSONObject().put("seriesId", sid).put("title", "剧集 " + sid).put("path", "/detail/" + sid));
+            for (int i = 0; i < extra.length(); i++) {
+                JSONObject o = extra.getJSONObject(i);
+                map.put(o.optString("seriesId"), o);
             }
-        }
+            out = new JSONArray();
+            for (JSONObject o : map.values()) out.put(o);
+        } catch (Exception ignored) {}
         return out;
     }
 
     public static JSONObject detail(String seriesId) throws Exception {
-        String html = get(ORIGIN + "/detail/" + seriesId);
-        if (html.isEmpty()) html = get(ORIGIN + "/book/" + seriesId);
-        if (html.isEmpty()) html = get(ORIGIN + "/player/" + seriesId + "/1");
-        String title = extractTitle(html);
+        String html = get(ORIGIN + "/player/" + seriesId);
+        html = unescape(html);
+        String title = match(html, "\"series_name\"\\s*:\\s*\"([^\"]+)\"");
+        String cover = match(html, "\"series_cover\"\\s*:\\s*\"([^\"]+)\"");
+        if (cover != null) cover = unescape(cover);
+        int episodeCnt = 1;
+        try {
+            String c = match(html, "\"episode_cnt\"\\s*:\\s*(\\d+)");
+            if (c != null) episodeCnt = Integer.parseInt(c);
+        } catch (Exception ignored) {}
+        int accessible = episodeCnt;
+        try {
+            String c = match(html, "\"accessible_episode_cnt\"\\s*:\\s*(\\d+)");
+            if (c != null) accessible = Integer.parseInt(c);
+        } catch (Exception ignored) {}
+
+        List<String> vids = extractVids(html, seriesId);
         JSONArray episodes = new JSONArray();
-        Pattern ep = Pattern.compile("/player/" + Pattern.quote(seriesId) + "/(\\d+)");
-        Matcher m = ep.matcher(html);
-        List<String> seen = new ArrayList<>();
-        while (m.find()) {
-            String vid = m.group(1);
-            if (seen.contains(vid)) continue;
-            seen.add(vid);
+        int n = Math.max(vids.size(), Math.min(accessible, 30));
+        if (n < 1) n = 1;
+        for (int i = 0; i < n; i++) {
+            String vid = i < vids.size() ? vids.get(i) : (vids.isEmpty() ? "" : vids.get(0));
+            String url = vid.isEmpty() ? "" : (ORIGIN + "/video/public/" + vid + "/360p.mp4");
             episodes.put(new JSONObject()
-                    .put("episode", Integer.parseInt(vid))
+                    .put("episode", i + 1)
                     .put("vid", vid)
-                    .put("title", "第" + vid + "集")
+                    .put("title", "第" + (i + 1) + "集")
+                    .put("url", url)
                     .put("seriesId", seriesId));
-        }
-        if (episodes.length() == 0) {
-            // invent first 30 slots for manual resolve
-            for (int i = 1; i <= 20; i++) {
-                episodes.put(new JSONObject()
-                        .put("episode", i)
-                        .put("vid", String.valueOf(i))
-                        .put("title", "第" + i + "集")
-                        .put("seriesId", seriesId));
-            }
         }
         return new JSONObject()
                 .put("seriesId", seriesId)
-                .put("title", title)
+                .put("title", title == null ? ("剧集 " + seriesId) : title)
+                .put("cover", cover == null ? "" : cover)
+                .put("episodeCnt", episodeCnt)
+                .put("accessible", accessible)
                 .put("episodes", episodes);
     }
 
-    /** 解析单集播放地址（mp4/m3u8）。 */
-    public static JSONObject resolvePlay(String seriesId, String vid) throws Exception {
-        String html = get(ORIGIN + "/player/" + seriesId + "/" + vid);
-        String url = findMediaUrl(html);
-        if (url == null || url.isEmpty()) {
-            throw new IllegalStateException("未解析到播放地址，可手动粘贴 URL");
+    public static JSONObject resolvePlay(String seriesId, String vidOrEp) throws Exception {
+        JSONObject d = detail(seriesId);
+        JSONArray eps = d.optJSONArray("episodes");
+        if (eps == null || eps.length() == 0) throw new IllegalStateException("无可用集数");
+        int ep = 1;
+        try { ep = Integer.parseInt(vidOrEp); } catch (Exception ignored) {}
+        JSONObject item = eps.optJSONObject(Math.max(0, Math.min(ep - 1, eps.length() - 1)));
+        if (item == null || item.optString("url").isEmpty()) {
+            // fallback first
+            item = eps.getJSONObject(0);
         }
         return new JSONObject()
-                .put("url", url)
-                .put("title", "红果 " + seriesId + " 第" + vid + "集")
+                .put("url", item.optString("url"))
+                .put("title", d.optString("title") + " " + item.optString("title"))
                 .put("seriesId", seriesId)
-                .put("vid", vid)
-                .put("source", "web");
+                .put("vid", item.optString("vid"))
+                .put("cover", d.optString("cover"))
+                .put("source", "web-public");
     }
 
-    private static String findMediaUrl(String html) {
-        Pattern[] ps = new Pattern[] {
-                Pattern.compile("(https?://[^\"'\\s]+\\.m3u8[^\"'\\s]*)"),
-                Pattern.compile("(https?://[^\"'\\s]+\\.mp4[^\"'\\s]*)"),
-                Pattern.compile("src\\s*=\\s*\"(https?://[^\"]+)\"")
-        };
-        for (Pattern p : ps) {
-            Matcher m = p.matcher(html);
-            while (m.find()) {
-                String u = m.group(1).replace("\\/", "/");
-                if (u.contains(".m3u8") || u.contains(".mp4") || u.contains("video")) return u;
-            }
+    private static List<String> extractVids(String html, String seriesId) {
+        List<String> vids = new ArrayList<>();
+        // public path first
+        Matcher m = Pattern.compile("video/public/(\\d+)/").matcher(html);
+        while (m.find()) {
+            String v = m.group(1);
+            if (!v.equals(seriesId) && !vids.contains(v)) vids.add(v);
         }
-        return null;
+        m = Pattern.compile("\"vid\"\\s*:\\s*\"(\\d+)\"").matcher(html);
+        while (m.find()) {
+            String v = m.group(1);
+            if (!v.equals(seriesId) && !vids.contains(v)) vids.add(v);
+        }
+        return vids;
     }
 
-    private static String extractTitle(String html) {
-        Matcher m = Pattern.compile("<title>([^<]+)</title>", Pattern.CASE_INSENSITIVE).matcher(html);
-        if (m.find()) return m.group(1).replaceAll("\\s*[-|_].*$", "").trim();
-        return "红果剧集";
+    private static JSONArray parseSeriesList(String html) throws Exception {
+        html = unescape(html);
+        Map<String, JSONObject> map = new LinkedHashMap<>();
+        Matcher m = Pattern.compile("\"series_id\"\\s*:\\s*\"(\\d+)\"").matcher(html);
+        while (m.find()) {
+            String sid = m.group(1);
+            String window = html.substring(Math.max(0, m.start() - 200), Math.min(html.length(), m.start() + 900));
+            String title = match(window, "\"series_name\"\\s*:\\s*\"([^\"]+)\"");
+            String cover = match(window, "\"series_cover\"\\s*:\\s*\"([^\"]+)\"");
+            String intro = match(window, "\"series_intro\"\\s*:\\s*\"([^\"]*)\"");
+            JSONObject o = map.get(sid);
+            if (o == null) o = new JSONObject().put("seriesId", sid);
+            if (title != null && !title.isEmpty()) o.put("title", title);
+            if (cover != null && !cover.isEmpty()) o.put("cover", unescape(cover));
+            if (intro != null) o.put("intro", intro.length() > 80 ? intro.substring(0, 80) : intro);
+            if (!o.has("title")) o.put("title", "剧集 " + sid);
+            if (!o.has("cover")) o.put("cover", "");
+            map.put(sid, o);
+        }
+        JSONArray arr = new JSONArray();
+        for (JSONObject o : map.values()) arr.put(o);
+        return arr;
+    }
+
+    private static String match(String s, String regex) {
+        Matcher m = Pattern.compile(regex).matcher(s);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String unescape(String s) {
+        if (s == null) return null;
+        return s.replace("\\u002F", "/").replace("\\/", "/");
     }
 
     private static String get(String urlSpec) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(urlSpec).openConnection();
-        c.setConnectTimeout(10000);
+        c.setConnectTimeout(12000);
         c.setReadTimeout(15000);
         c.setRequestProperty("User-Agent", UA);
         c.setRequestProperty("Accept", "text/html,application/json,*/*");
+        c.setRequestProperty("Referer", ORIGIN + "/");
         c.setInstanceFollowRedirects(true);
         int code = c.getResponseCode();
         if (code >= 400) return "";
@@ -149,7 +185,7 @@ public final class HongguoClient {
             int n;
             while ((n = br.read(buf)) >= 0) {
                 sb.append(buf, 0, n);
-                if (sb.length() > 1_500_000) break;
+                if (sb.length() > 2_000_000) break;
             }
         }
         return sb.toString();

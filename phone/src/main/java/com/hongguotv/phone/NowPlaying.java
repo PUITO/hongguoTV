@@ -12,7 +12,7 @@ public final class NowPlaying {
     public final JSONArray playlist = new JSONArray();
     public volatile int index = 0;
     public volatile boolean playing = true;
-    public volatile float speed = 1.0f;
+    public volatile float speed = 1.5f;
     public volatile long seekMs = -1;
     public volatile long commandId = 0;
     public volatile String seriesId = "";

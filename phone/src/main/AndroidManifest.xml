@@ -18,6 +18,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.HongguoPhone"
         android:usesCleartextTraffic="true">
+        <activity android:name=".SeriesDetailActivity" android:exported="false" />
+        <activity android:name=".LocalPlayerActivity" android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

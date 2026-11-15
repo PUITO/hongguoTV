@@ -13,6 +13,10 @@ import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ViewFlipper;
+import android.view.inputmethod.EditorInfo;
+import android.widget.ArrayAdapter;
+import android.widget.Spinner;
+import android.widget.ListView;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SwitchCompat;
@@ -43,6 +47,11 @@ public class MainActivity extends AppCompatActivity {
     private EditText urlInput, titleInput, searchInput, seriesInput, epInput;
     private SwitchCompat switchAutoNext, switchOverlay, switchKeepOn, switchTvLocal;
     private RadioGroup playModeGroup;
+    private ListView seriesList;
+    private TextView listHeader;
+    private SeriesListAdapter seriesAdapter;
+    private Spinner speedSpinner;
+    private boolean searching;
     private String pairCode = "0000";
     private boolean running;
     private final ExecutorService net = Executors.newCachedThreadPool();
@@ -77,6 +86,46 @@ public class MainActivity extends AppCompatActivity {
         switchKeepOn = findViewById(R.id.switchKeepOn);
         switchTvLocal = findViewById(R.id.switchTvLocal);
         playModeGroup = findViewById(R.id.playModeGroup);
+        seriesList = findViewById(R.id.seriesList);
+        listHeader = findViewById(R.id.listHeader);
+        speedSpinner = findViewById(R.id.speedSpinner);
+        seriesAdapter = new SeriesListAdapter(this);
+        seriesList.setAdapter(seriesAdapter);
+        seriesList.setOnItemClickListener((parent, view, position, id) -> {
+            try {
+                org.json.JSONObject o = (org.json.JSONObject) seriesAdapter.getItem(position);
+                if (o == null) return;
+                Intent di = new Intent(this, SeriesDetailActivity.class);
+                di.putExtra(SeriesDetailActivity.EXTRA_SERIES_ID, o.optString("seriesId"));
+                di.putExtra(SeriesDetailActivity.EXTRA_TITLE, o.optString("title"));
+                di.putExtra(SeriesDetailActivity.EXTRA_COVER, o.optString("cover"));
+                startActivity(di);
+            } catch (Exception ignored) {}
+        });
+        String[] speeds = new String[]{"0.75","1.0","1.25","1.5","2.0"};
+        ArrayAdapter<String> spAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, speeds);
+        speedSpinner.setAdapter(spAdapter);
+        float def = DeviceSettings.INSTANCE.defaultSpeed;
+        int sel = 3; // 1.5
+        for (int i = 0; i < speeds.length; i++) {
+            try { if (Math.abs(Float.parseFloat(speeds[i]) - def) < 0.01f) sel = i; } catch (Exception ignored) {}
+        }
+        speedSpinner.setSelection(sel);
+        speedSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
+                try {
+                    float s = Float.parseFloat(speeds[position]);
+                    applySetting(put("defaultSpeed", s));
+                    speed(s);
+                } catch (Exception ignored) {}
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        });
+        searchInput.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) { doSearch(); return true; }
+            return false;
+        });
+        loadSourceList(false);
 
         pairCode = String.format(Locale.US, "%04d", new Random().nextInt(10000));
         pairCodeView.setText("配对码 " + pairCode);
@@ -103,11 +152,6 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnSp125).setOnClickListener(v -> speed(1.25f));
         findViewById(R.id.btnSp15).setOnClickListener(v -> speed(1.5f));
         findViewById(R.id.btnSp20).setOnClickListener(v -> speed(2.0f));
-        findViewById(R.id.btnDef075).setOnClickListener(v -> setDefaultSpeed(0.75f));
-        findViewById(R.id.btnDef10).setOnClickListener(v -> setDefaultSpeed(1.0f));
-        findViewById(R.id.btnDef125).setOnClickListener(v -> setDefaultSpeed(1.25f));
-        findViewById(R.id.btnDef15).setOnClickListener(v -> setDefaultSpeed(1.5f));
-        findViewById(R.id.btnDef20).setOnClickListener(v -> setDefaultSpeed(2.0f));
 
         playModeGroup.setOnCheckedChangeListener((g, id) -> {
             String mode = (id == R.id.modeDirect) ? CastProtocol.MODE_DIRECT : CastProtocol.MODE_PROXY;
@@ -127,6 +171,7 @@ public class MainActivity extends AppCompatActivity {
         String[] titles = {"连接电视", "片源", "设置", "遥控"};
         topBar.setText("红果推流 · " + titles[index]);
         highlightNav(index);
+        if (index == 1 && !searching) loadSourceList(false);
     }
 
     private void highlightNav(int index) {
@@ -168,20 +213,44 @@ public class MainActivity extends AppCompatActivity {
 
     private void doSearch() {
         String kw = text(searchInput);
-        if (kw.isEmpty()) { toast("输入关键词"); return; }
-        searchResult.setText("搜索中…");
+        searching = true;
+        if (listHeader != null) listHeader.setText(kw.isEmpty() ? "推荐" : ("搜索：" + kw));
+        if (searchResult != null) searchResult.setVisibility(android.view.View.VISIBLE);
         net.execute(() -> {
             try {
                 JSONArray items = HongguoClient.search(kw);
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < items.length(); i++) {
-                    JSONObject o = items.getJSONObject(i);
-                    sb.append(o.optString("seriesId")).append("  ").append(o.optString("title")).append("\n");
-                }
-                if (sb.length() == 0) sb.append("无结果，可手动填系列 ID");
-                ui.post(() -> searchResult.setText(sb.toString()));
+                ui.post(() -> {
+                    seriesAdapter.setData(items);
+                    if (items.length() == 0) toast("未找到相关剧集，可下拉推荐或换关键词");
+                });
             } catch (Exception e) {
-                ui.post(() -> searchResult.setText("搜索失败: " + e.getMessage()));
+                ui.post(() -> toast("搜索失败: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void loadSourceList(boolean forceHome) {
+        net.execute(() -> {
+            try {
+                JSONArray hist = WatchHistory.list(this);
+                JSONArray home = HongguoClient.homeFeed();
+                JSONArray show;
+                String header;
+                if (!forceHome && hist.length() > 0) {
+                    show = hist;
+                    header = "观看历史";
+                } else {
+                    show = home;
+                    header = "热门推荐";
+                }
+                JSONArray finalShow = show;
+                String finalHeader = header;
+                ui.post(() -> {
+                    if (listHeader != null) listHeader.setText(finalHeader);
+                    seriesAdapter.setData(finalShow);
+                });
+            } catch (Exception e) {
+                ui.post(() -> toast("加载推荐失败: " + e.getMessage()));
             }
         });
     }

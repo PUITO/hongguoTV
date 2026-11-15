@@ -13,7 +13,7 @@ public final class DeviceSettings {
     /** direct | proxy */
     public volatile String playMode = CastProtocol.MODE_PROXY;
     public volatile boolean autoNext = true;
-    public volatile float defaultSpeed = 1.0f;
+    public volatile float defaultSpeed = 1.5f;
     public volatile boolean showTvOverlay = true;
     public volatile boolean tvKeepScreenOn = true;
     public volatile boolean allowTvLocalControl = true; // 电视本机按键是否可用
