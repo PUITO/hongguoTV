@@ -125,7 +125,7 @@ object PlaintextCache {
         // 写入修补后的 header
         val hLen = minOf(prepared.header.size, working.size)
         System.arraycopy(prepared.header, 0, working, 0, hLen)
-        val clear = MediaCrypto.decrypt(working, 0, working.size.toLong(), key, prepared)
+        val clear = MediaCrypto.decrypt(working, 0, key, prepared)
         FileOutputStream(out).use { it.write(clear) }
     }
 
