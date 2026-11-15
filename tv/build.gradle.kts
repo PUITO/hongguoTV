@@ -24,5 +24,4 @@ android {
 dependencies {
     implementation(project(":shared"))
     implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("androidx.leanback:leanback:1.0.0")
 }
