@@ -102,10 +102,8 @@ public final class HongguoClient {
         String html = get(ORIGIN + "/player/" + seriesId + "/" + vid);
         String url = findMediaUrl(html);
         if (url == null || url.isEmpty()) {
-            // try common JSON in page
-            Pattern j = Pattern.compile("\"(?:url|play_url|src|video_url)\"\\s*:\\s*\"(https?:\\\\?/\\\\?/[^\\"]+)\"");
-            Matcher m = j.matcher(html);
-            if (m.find()) url = m.group(1).replace("\\/", "/");
+            Matcher mj = Pattern.compile("https?://[^\"\s]+\.(?:mp4|m3u8)[^\"\s]*").matcher(html);
+            if (mj.find()) url = mj.group().replace("\/", "/");
         }
         if (url == null || url.isEmpty()) {
             throw new IllegalStateException("未解析到播放地址，可手动粘贴 URL");
