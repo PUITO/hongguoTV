@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
         try {
             bindServer = new TvBindServer(CastProtocol.TV_BIND_PORT, session, () -> ui.post(pollBound));
             bindServer.start();
-            message.setText("等待手机扫码绑定…");
+            message.setText("等待手机扫码绑定（TV 仅接收推送）…");
             ui.post(pollBound);
         } catch (Exception e) {
             message.setText("绑定服务启动失败: " + e.getMessage() + "\n请用下方手动连接");

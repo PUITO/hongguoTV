@@ -20,7 +20,13 @@ import java.util.zip.GZIPOutputStream
  */
 object AppPlayback {
     data class Identity(val deviceId: String, val installId: String, val cdid: String)
-    data class Stream(val url: String, val quality: String, val height: Int)
+    data class Stream(
+        val url: String,
+        val quality: String,
+        val height: Int,
+        val spadeA: String? = null,
+        val encrypted: Boolean = false,
+    )
 
     private val VIDEO_TAB =
         "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/"
@@ -188,7 +194,7 @@ object AppPlayback {
             val base = if (h > 0) h else want
             (if (h == 0) 10000 else 0) + kotlin.math.abs(base - want)
         } ?: list.first()
-        AppLog.i("选定流 q=${best.quality} h=${best.height} url=${AppLog.clip(best.url, 80)}")
+        AppLog.i("选定流 q=${best.quality} h=${best.height} enc=${best.encrypted} spade=${!best.spadeA.isNullOrBlank()} url=${AppLog.clip(best.url, 80)}")
         return best
     }
 
@@ -456,7 +462,13 @@ object AppPlayback {
             AppLog.w("跳过音频流 $label")
             return false
         }
-        out += Stream(url, label.ifBlank { "app" }, h)
+        val enc = item.optJSONObject("encrypt_info")
+        val encrypted = enc?.optBoolean("encrypt", false) == true
+        val spade = enc?.optString("spade_a")?.takeIf { it.isNotBlank() }
+        if (encrypted) {
+            AppLog.i("轨道加密 q=$label spade=${AppLog.clip(spade ?: "", 24)}")
+        }
+        out += Stream(url, label.ifBlank { "app" }, h, spade, encrypted)
         return true
     }
 

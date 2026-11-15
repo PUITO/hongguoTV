@@ -250,20 +250,30 @@ public final class CastHttpServer {
             writeText(s, 404, "no source");
             return;
         }
+        // 本地明文文件（解密缓存）
+        if (src.startsWith("file://") || src.startsWith("/")) {
+            String path = src.startsWith("file://") ? src.substring(7) : src;
+            File f = new File(path);
+            if (f.exists() && f.length() > 0) {
+                AppLog.i("serveStream 本地明文 " + f.getName() + " size=" + f.length());
+                serveFileRange(s, f, "video/mp4", rangeHeader, null);
+                return;
+            }
+            writeText(s, 404, "plain missing");
+            return;
+        }
         cache.setCurrent(src);
         MediaCache.Job job = cache.jobForUrl(src);
-        // Wait briefly for first bytes
         for (int i = 0; i < 50; i++) {
             if (job != null && job.file.exists() && job.file.length() > 64 * 1024) break;
             if (job != null && job.failed.get()) break;
-            Thread.sleep(100);
+            try { Thread.sleep(100); } catch (InterruptedException ignored) {}
         }
         File file = cache.fileFor(src);
         if (file.exists() && file.length() > 0) {
             serveFileRange(s, file, job != null ? job.contentType : "video/mp4", rangeHeader, job);
             return;
         }
-        // fallback: relay upstream
         relayUpstream(s, src, rangeHeader);
     }
 

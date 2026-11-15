@@ -18,11 +18,16 @@ public final class NowPlaying {
     public volatile String seriesId = "";
 
     public String playUrlForTv(String phoneIp, int port) {
-        DeviceSettings s = DeviceSettings.INSTANCE;
-        if (s.isProxy() && sourceUrl != null && !sourceUrl.isEmpty()) {
+        if (sourceUrl == null || sourceUrl.isEmpty()) return "";
+        // 明文文件 / 任意源：TV 一律走手机代理，TV 不直连红果 CDN
+        if (sourceUrl.startsWith("file://") || sourceUrl.startsWith("/")
+                || DeviceSettings.INSTANCE.isProxy()
+                || sourceUrl.contains("qznovelvod")
+                || sourceUrl.contains("byteimg")
+                || sourceUrl.contains("tos-cn")) {
             return "http://" + phoneIp + ":" + port + CastProtocol.PATH_STREAM_CURRENT;
         }
-        return sourceUrl == null ? "" : sourceUrl;
+        return sourceUrl;
     }
 
     public synchronized void set(String url, String title) {

@@ -143,10 +143,14 @@ public class SeriesDetailActivity extends Activity {
                                         .put("seriesId", seriesId));
                             }
                             CastServerService.NOW.setPlaylist(pl, 0);
-                            if (DeviceSettings.INSTANCE.isProxy() && CastServerService.CACHE != null) {
+                            // TV 只收手机流：强制 source 为明文路径，TV 播 http://phone:8765/stream/current
+                            CastServerService.NOW.sourceUrl = fUrl;
+                            if (CastServerService.CACHE != null && !fUrl.startsWith("file://") && !fUrl.startsWith("/")) {
                                 CastServerService.CACHE.setCurrent(fUrl);
                             }
-                            Toast.makeText(this, "已推送电视 · " + fQuality, Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, "已推送电视 · " + fQuality
+                                    + (fUrl.startsWith("file") ? "（明文）" : ""), Toast.LENGTH_SHORT).show();
+                            AppLog.i("推送TV source=" + AppLog.clip(fUrl, 80));
                         } catch (Exception e) {
                             Toast.makeText(this, "推送失败", Toast.LENGTH_SHORT).show();
                         }

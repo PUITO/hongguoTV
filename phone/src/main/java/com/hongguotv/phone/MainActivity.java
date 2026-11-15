@@ -232,6 +232,7 @@ public class MainActivity extends AppCompatActivity {
         });
         AppLog.i("MainActivity 启动");
         com.hongguotv.phone.core.AppPlayback.init(this);
+        com.hongguotv.phone.core.PlaintextCache.init(getCacheDir());
 
         findViewById(R.id.btnStart).setOnClickListener(v -> startServer());
         findViewById(R.id.btnStop).setOnClickListener(v -> stopServer());

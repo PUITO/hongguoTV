@@ -190,7 +190,12 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
      * 本地播放：先直连 CDN；TV 推流仍走手机代理缓存。
      */
     private String buildPlayUrl(String url) {
-        AppLog.i("本地播放直连 CDN（MediaPlayer）");
+        if (url != null && (url.startsWith("file://") || url.startsWith("/"))) {
+            AppLog.i("已是本地明文");
+            return url;
+        }
+        // CDN 密文需先在取流阶段解密；此处仅直连尝试
+        AppLog.i("本地播放地址 " + AppLog.clip(url, 80));
         return url;
     }
 
@@ -203,7 +208,11 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
                     .build());
             player.setSurface(surface);
 
-            if (playUrl.contains("127.0.0.1")) {
+            if (playUrl.startsWith("file://") || playUrl.startsWith("/")) {
+                String path = playUrl.startsWith("file://") ? playUrl.substring(7) : playUrl;
+                player.setDataSource(path);
+                AppLog.i("MediaPlayer 本地明文 " + path);
+            } else if (playUrl.contains("127.0.0.1")) {
                 player.setDataSource(playUrl);
                 AppLog.i("MediaPlayer 代理 setDataSource");
             } else {
