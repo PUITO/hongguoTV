@@ -127,6 +127,14 @@ object PlaintextCache {
         System.arraycopy(prepared.header, 0, working, 0, hLen)
         val clear = MediaCrypto.decrypt(working, 0, key, prepared)
         FileOutputStream(out).use { it.write(clear) }
+        // 简单校验
+        if (clear.size >= 8) {
+            val tag = String(clear, 4, 4, Charsets.US_ASCII)
+            AppLog.i("明文容器 tag=$tag size=${clear.size}")
+            if (tag != "ftyp" && tag != "moov") {
+                AppLog.w("明文头异常 tag=$tag，播放可能有声无画")
+            }
+        }
     }
 
     private fun md5(s: String): String {

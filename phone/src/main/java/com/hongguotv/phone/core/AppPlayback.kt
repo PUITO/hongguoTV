@@ -26,6 +26,7 @@ object AppPlayback {
         val height: Int,
         val spadeA: String? = null,
         val encrypted: Boolean = false,
+        val codec: String = "",
     )
 
     private val VIDEO_TAB =
@@ -174,29 +175,54 @@ object AppPlayback {
 
     @JvmStatic
     fun fetchBest(vid: String, preferred: String?): Stream? {
-        val list = fetchStreams(vid)
-        if (list.isEmpty()) return null
+        val ranked = rankStreams(fetchStreams(vid), preferred)
+        if (ranked.isEmpty()) return null
+        val best = ranked.first()
+        AppLog.i("选定流 q=${best.quality} h=${best.height} enc=${best.encrypted} codec=${best.codec} url=${AppLog.clip(best.url, 80)}")
+        return best
+    }
+
+    /** 按稳定性排序：未加密优先 → 接近目标清晰度 → 避免盲目 1080 */
+    @JvmStatic
+    fun rankStreams(list: List<Stream>, preferred: String?): List<Stream> {
+        if (list.isEmpty()) return emptyList()
         for (s in list) {
-            AppLog.i("候选流 q=${s.quality} h=${s.height} url=${AppLog.clip(s.url, 70)}")
+            AppLog.i("候选流 q=${s.quality} h=${s.height} enc=${s.encrypted} codec=${s.codec} url=${AppLog.clip(s.url, 60)}")
         }
         val want = when (preferred) {
             "360p" -> 360
+            "480p" -> 480
+            "540p" -> 540
             "1080p" -> 1080
             "720p" -> 720
             else -> 720
         }
         fun heightOf(s: Stream): Int {
             if (s.height > 0) return s.height
-            return Regex("(\\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            return Regex("(\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
         }
-        val best = list.minByOrNull { s ->
-            val h = heightOf(s)
-            val base = if (h > 0) h else want
-            (if (h == 0) 10000 else 0) + kotlin.math.abs(base - want)
-        } ?: list.first()
-        AppLog.i("选定流 q=${best.quality} h=${best.height} enc=${best.encrypted} spade=${!best.spadeA.isNullOrBlank()} url=${AppLog.clip(best.url, 80)}")
-        return best
+        fun codecPenalty(s: Stream): Int {
+            val c = s.codec.lowercase()
+            return when {
+                c.contains("h264") || c.contains("avc") -> 0
+                c.contains("bytevc1") || c.contains("hvc1") || c.contains("hevc") -> 10
+                else -> 5
+            }
+        }
+        return list.sortedWith(
+            compareBy<Stream> { if (it.encrypted) 1 else 0 }
+                .thenBy { codecPenalty(it) }
+                .thenBy { s ->
+                    val h = heightOf(s)
+                    if (h == 0) 5000 else kotlin.math.abs(h - want)
+                }
+                .thenByDescending { heightOf(it) },
+        )
     }
+
+    @JvmStatic
+    fun fetchRanked(vid: String, preferred: String?): List<Stream> =
+        rankStreams(fetchStreams(vid), preferred)
 
     private fun registerDevice(): Identity {
         val cdid = UUID.randomUUID().toString()
@@ -442,10 +468,7 @@ object AppPlayback {
             "vheight",
             item.optInt(
                 "height",
-                item.optInt(
-                    "video_height",
-                    meta?.optInt("height", meta.optInt("vheight", 0)) ?: 0,
-                ),
+                item.optInt("video_height", meta?.optInt("height", meta?.optInt("vheight", 0) ?: 0) ?: 0),
             ),
         )
         var label = item.optString(
@@ -456,7 +479,6 @@ object AppPlayback {
             ),
         )
         if (label.isBlank() && h > 0) label = "${h}p"
-        // 跳过明显非视频
         val ctype = item.optString("logo_type", item.optString("media_type", ""))
         if (ctype.contains("audio", true)) {
             AppLog.w("跳过音频流 $label")
@@ -465,10 +487,14 @@ object AppPlayback {
         val enc = item.optJSONObject("encrypt_info")
         val encrypted = enc?.optBoolean("encrypt", false) == true
         val spade = enc?.optString("spade_a")?.takeIf { it.isNotBlank() }
+        val codec = item.optString(
+            "codec_type",
+            meta?.optString("codec_type", item.optString("codec", "")) ?: "",
+        )
         if (encrypted) {
-            AppLog.i("轨道加密 q=$label spade=${AppLog.clip(spade ?: "", 24)}")
+            AppLog.i("轨道加密 q=$label h=$h codec=$codec spade=${AppLog.clip(spade ?: "", 24)}")
         }
-        out += Stream(url, label.ifBlank { "app" }, h, spade, encrypted)
+        out += Stream(url, label.ifBlank { "app" }, h, spade, encrypted, codec)
         return true
     }
 

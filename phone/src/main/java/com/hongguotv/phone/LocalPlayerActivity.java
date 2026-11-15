@@ -244,8 +244,12 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
                 ui.post(tick);
                 showControls();
                 if (w <= 0 || h <= 0) {
-                    AppLog.w("视频宽高为 0，可能无画面（加密/编码）");
-                    Toast.makeText(this, "已连接音轨，画面异常可能是片源编码限制", Toast.LENGTH_LONG).show();
+                    AppLog.w("视频宽高为 0，有声无画（HEVC/解密）");
+                    Toast.makeText(this, "有声无画：请到设置将清晰度改为 480p/360p 后重试", Toast.LENGTH_LONG).show();
+                } else {
+                    try {
+                        mp.setVideoScalingMode(android.media.MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+                    } catch (Exception ignored) {}
                 }
             });
             player.setOnErrorListener((mp, what, extra) -> {

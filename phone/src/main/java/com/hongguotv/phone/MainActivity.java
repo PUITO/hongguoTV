@@ -158,7 +158,7 @@ public class MainActivity extends AppCompatActivity {
             return false;
         });
         qualitySpinner = findViewById(R.id.qualitySpinner);
-        String[] qualities = new String[]{"auto", "360p", "720p", "1080p"};
+        String[] qualities = new String[]{"auto", "360p", "480p", "720p", "1080p"};
         ArrayAdapter<String> qAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, qualities);
         qualitySpinner.setAdapter(qAdapter);
         String pq = DeviceSettings.INSTANCE.preferredQuality;
@@ -198,7 +198,7 @@ public class MainActivity extends AppCompatActivity {
                 findViewById(R.id.chipQAuto), findViewById(R.id.chipQ360),
                 findViewById(R.id.chipQ720), findViewById(R.id.chipQ1080)
         };
-        String[] qVals = new String[]{"auto", "360p", "720p", "1080p"};
+        String[] qVals = new String[]{"auto", "360p", "480p", "720p", "1080p"};
         for (int i = 0; i < qualityChips.length; i++) {
             final String qv = qVals[i];
             if (qualityChips[i] != null) qualityChips[i].setOnClickListener(v -> {
@@ -597,7 +597,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void highlightQualityChips() {
-        String[] vals = new String[]{"auto", "360p", "720p", "1080p"};
+        String[] vals = new String[]{"auto", "360p", "480p", "720p", "1080p"};
         String cur = DeviceSettings.INSTANCE.preferredQuality;
         if (qualityChips == null) return;
         for (int i = 0; i < qualityChips.length; i++) {

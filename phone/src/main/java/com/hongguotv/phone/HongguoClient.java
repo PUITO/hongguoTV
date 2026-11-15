@@ -173,7 +173,7 @@ public final class HongguoClient {
             } catch (Exception e) {
                 AppLog.e("App 取流异常", e);
             }
-            AppLog.w("回退公共 360p vid=" + vid);
+            AppLog.w("App全部清晰度失败，回退公共试看360p vid=" + vid);
             String publicUrl = ORIGIN + "/video/public/" + vid + "/360p.mp4";
             return new JSONObject()
                     .put("url", publicUrl)

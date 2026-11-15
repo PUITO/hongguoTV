@@ -15,7 +15,7 @@ public final class DeviceSettings {
     public volatile boolean autoNext = true;
     public volatile float defaultSpeed = 1.5f;
     /** auto|360p|720p|1080p — web 公共源目前仅 360p，App 源后续按此选档 */
-    public volatile String preferredQuality = "720p";
+    public volatile String preferredQuality = "480p";
     public volatile boolean showTvOverlay = true;
     public volatile boolean tvKeepScreenOn = true;
     public volatile boolean allowTvLocalControl = true; // 电视本机按键是否可用
