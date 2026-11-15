@@ -13,6 +13,7 @@ import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ViewFlipper;
+import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.ArrayAdapter;
 import android.widget.Spinner;
@@ -51,6 +52,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView listHeader;
     private SeriesListAdapter seriesAdapter;
     private Spinner speedSpinner;
+    private Spinner qualitySpinner;
+    private boolean showHistory;
     private boolean searching;
     private String pairCode = "0000";
     private boolean running;
@@ -125,6 +128,24 @@ public class MainActivity extends AppCompatActivity {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) { doSearch(); return true; }
             return false;
         });
+        qualitySpinner = findViewById(R.id.qualitySpinner);
+        String[] qualities = new String[]{"auto", "360p", "720p", "1080p"};
+        ArrayAdapter<String> qAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, qualities);
+        qualitySpinner.setAdapter(qAdapter);
+        String pq = DeviceSettings.INSTANCE.preferredQuality;
+        int qsel = 2;
+        for (int i = 0; i < qualities.length; i++) if (qualities[i].equals(pq)) qsel = i;
+        qualitySpinner.setSelection(qsel);
+        qualitySpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
+                applySetting(put("preferredQuality", qualities[position]));
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        });
+        View tabRec = findViewById(R.id.tabRecommend);
+        View tabHist = findViewById(R.id.tabHistory);
+        if (tabRec != null) tabRec.setOnClickListener(v -> { showHistory = false; searching = false; loadSourceList(true); });
+        if (tabHist != null) tabHist.setOnClickListener(v -> { showHistory = true; searching = false; loadSourceList(false); });
         loadSourceList(false);
 
         pairCode = String.format(Locale.US, "%04d", new Random().nextInt(10000));
@@ -230,17 +251,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadSourceList(boolean forceHome) {
+        final boolean history = showHistory && !forceHome;
         net.execute(() -> {
             try {
-                JSONArray hist = WatchHistory.list(this);
-                JSONArray home = HongguoClient.homeFeed();
                 JSONArray show;
                 String header;
-                if (!forceHome && hist.length() > 0) {
-                    show = hist;
+                if (history) {
+                    show = WatchHistory.list(this);
                     header = "观看历史";
+                    if (show.length() == 0) header = "暂无历史，先去推荐看看";
                 } else {
-                    show = home;
+                    show = HongguoClient.homeFeed();
                     header = "热门推荐";
                 }
                 JSONArray finalShow = show;
@@ -250,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
                     seriesAdapter.setData(finalShow);
                 });
             } catch (Exception e) {
-                ui.post(() -> toast("加载推荐失败: " + e.getMessage()));
+                ui.post(() -> toast("加载失败: " + e.getMessage()));
             }
         });
     }

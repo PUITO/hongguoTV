@@ -5,8 +5,6 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.widget.ArrayAdapter;
-import android.widget.Button;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -15,8 +13,6 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -29,10 +25,8 @@ public class SeriesDetailActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private String seriesId;
     private JSONObject detail;
-    private int selectedEp = 0;
-    private GridView grid;
-    private TextView meta;
-    private List<String> epLabels = new ArrayList<>();
+    private EpisodeAdapter episodeAdapter;
+    private TextView meta, sourceNote;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -40,12 +34,22 @@ public class SeriesDetailActivity extends Activity {
         seriesId = getIntent().getStringExtra(EXTRA_SERIES_ID);
         String title = getIntent().getStringExtra(EXTRA_TITLE);
         String cover = getIntent().getStringExtra(EXTRA_COVER);
-        TextView titleView = findViewById(R.id.detailTitle);
-        titleView.setText(title == null ? "剧集" : title);
-        ImageView coverView = findViewById(R.id.cover);
-        ImageLoader.load(coverView, cover);
+        ((TextView) findViewById(R.id.detailTitle)).setText(title == null ? "剧集" : title);
+        ImageLoader.load(findViewById(R.id.cover), cover);
         meta = findViewById(R.id.meta);
-        grid = findViewById(R.id.episodeGrid);
+        sourceNote = findViewById(R.id.sourceNote);
+        GridView grid = findViewById(R.id.episodeGrid);
+        episodeAdapter = new EpisodeAdapter(this);
+        grid.setAdapter(episodeAdapter);
+        grid.setOnItemClickListener((parent, view, position, id) -> {
+            episodeAdapter.setSelected(position);
+            try {
+                JSONObject ep = (JSONObject) episodeAdapter.getItem(position);
+                if (ep != null && ep.optBoolean("locked")) {
+                    Toast.makeText(this, "本集公共源锁定，需 App 高清解析", Toast.LENGTH_SHORT).show();
+                }
+            } catch (Exception ignored) {}
+        });
         findViewById(R.id.btnBack).setOnClickListener(v -> finish());
         findViewById(R.id.btnPlayPhone).setOnClickListener(v -> play(false));
         findViewById(R.id.btnPushTv).setOnClickListener(v -> play(true));
@@ -57,23 +61,13 @@ public class SeriesDetailActivity extends Activity {
         try {
             detail = HongguoClient.detail(seriesId);
             JSONArray eps = detail.optJSONArray("episodes");
-            epLabels.clear();
-            if (eps != null) {
-                for (int i = 0; i < eps.length(); i++) {
-                    epLabels.add(String.valueOf(i + 1));
-                }
-            }
             ui.post(() -> {
                 meta.setText(detail.optString("title") + "\n共 "
-                        + detail.optInt("episodeCnt") + " 集 · 可播 "
-                        + detail.optInt("accessible") + " 集\n点击集数后选择播放方式");
-                ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                        android.R.layout.simple_list_item_1, epLabels);
-                grid.setAdapter(adapter);
-                grid.setOnItemClickListener((parent, view, position, id) -> {
-                    selectedEp = position;
-                    Toast.makeText(this, "已选第" + (position + 1) + "集", Toast.LENGTH_SHORT).show();
-                });
+                        + detail.optInt("episodeCnt") + " 集 · 公共可播 "
+                        + detail.optInt("accessible") + " 集\n清晰度偏好 "
+                        + DeviceSettings.INSTANCE.preferredQuality);
+                if (sourceNote != null) sourceNote.setText(detail.optString("note"));
+                episodeAdapter.setData(eps);
                 try {
                     WatchHistory.add(this, new JSONObject()
                             .put("seriesId", seriesId)
@@ -97,30 +91,33 @@ public class SeriesDetailActivity extends Activity {
                 Toast.makeText(this, "无剧集", Toast.LENGTH_SHORT).show();
                 return;
             }
-            int idx = Math.min(selectedEp, eps.length() - 1);
+            int idx = episodeAdapter.getSelected();
+            if (idx < 0 || idx >= eps.length()) idx = 0;
             JSONObject ep = eps.getJSONObject(idx);
-            String url = ep.optString("url");
-            if (url.isEmpty()) {
-                Toast.makeText(this, "该集无播放地址", Toast.LENGTH_SHORT).show();
+            if (ep.optBoolean("locked") || ep.optString("url").isEmpty()) {
+                Toast.makeText(this, "选中集不可播（公共源限制），请换未锁定集", Toast.LENGTH_LONG).show();
                 return;
             }
+            String url = ep.optString("url");
             String title = detail.optString("title") + " 第" + (idx + 1) + "集";
             if (pushTv) {
-                // build playlist from accessible eps
                 JSONArray pl = new JSONArray();
+                int playIndex = 0;
                 for (int i = 0; i < eps.length(); i++) {
                     JSONObject e = eps.getJSONObject(i);
-                    if (e.optString("url").isEmpty()) continue;
+                    if (e.optBoolean("locked") || e.optString("url").isEmpty()) continue;
+                    if (i == idx) playIndex = pl.length();
                     pl.put(new JSONObject()
                             .put("url", e.optString("url"))
                             .put("title", detail.optString("title") + " 第" + (i + 1) + "集")
-                            .put("seriesId", seriesId));
+                            .put("seriesId", seriesId)
+                            .put("quality", e.optString("quality")));
                 }
-                CastServerService.NOW.setPlaylist(pl, idx);
+                CastServerService.NOW.setPlaylist(pl, playIndex);
                 if (DeviceSettings.INSTANCE.isProxy() && CastServerService.CACHE != null) {
                     CastServerService.CACHE.setCurrent(url);
                 }
-                Toast.makeText(this, "已推送到电视", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "已推送到电视（" + ep.optString("quality", "360p") + "）", Toast.LENGTH_SHORT).show();
             } else {
                 Intent i = new Intent(this, LocalPlayerActivity.class);
                 i.putExtra(LocalPlayerActivity.EXTRA_URL, url);

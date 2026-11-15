@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.MediaController;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
@@ -28,10 +29,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * 电视播放器：片源与全部设置以手机为准。
- * playMode=direct → 播 sourceUrl；proxy → 播手机 /stream/current。
- */
 public class PlayerActivity extends Activity {
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_TITLE = "title";
@@ -42,21 +39,22 @@ public class PlayerActivity extends Activity {
     private VideoView video;
     private TextView titleView, meta;
     private View overlay;
+    private MediaController controller;
     private String phoneIp, pair;
     private int phonePort;
     private long lastCommandId = -1;
     private long lastSettingsRev = -1;
     private String currentUrl = "";
-    private float currentSpeed = 1f;
-    private final float[] speeds = {0.75f, 1f, 1.25f, 1.5f, 2f};
-    private int speedIdx = 1;
+    private float currentSpeed = 1.5f;
     private boolean allowLocalControl = true;
     private boolean showOverlayPref = true;
     private int overlayHideMs = 5000;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     private boolean destroyed;
-    private final Runnable hideOverlay = () -> { if (overlay != null && showOverlayPref) overlay.setVisibility(View.GONE); };
+    private final Runnable hideOverlay = () -> {
+        if (overlay != null && showOverlayPref) overlay.setVisibility(View.GONE);
+    };
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (destroyed) return;
@@ -84,32 +82,34 @@ public class PlayerActivity extends Activity {
         String t = getIntent().getStringExtra(EXTRA_TITLE);
         titleView.setText(t == null || t.isEmpty() ? "播放中" : t);
 
-        findViewById(R.id.btnPrev).setOnClickListener(v -> { if (allowLocalControl) postControl("prev"); showOverlay(); });
-        findViewById(R.id.btnNext).setOnClickListener(v -> { if (allowLocalControl) postControl("next"); showOverlay(); });
-        findViewById(R.id.btnPlayPause).setOnClickListener(v -> {
-            if (!allowLocalControl) return;
-            if (video.isPlaying()) { video.pause(); postControl("pause"); }
-            else { video.start(); postControl("play"); }
-            showOverlay();
-        });
-        findViewById(R.id.btnSpeed).setOnClickListener(v -> {
-            if (!allowLocalControl) return;
-            speedIdx = (speedIdx + 1) % speeds.length;
-            currentSpeed = speeds[speedIdx];
-            applySpeed(currentSpeed);
-            try { postControlJson(new JSONObject().put("action", "speed").put("value", currentSpeed)); } catch (Exception ignored) {}
-            meta.setText("倍速 " + currentSpeed + "x");
-            showOverlay();
-        });
+        controller = new MediaController(this);
+        controller.setAnchorView(video);
+        controller.setMediaPlayer(video);
+        video.setMediaController(controller);
+
+        // Hide static bottom buttons — MediaController is primary UI
+        View btnPrev = findViewById(R.id.btnPrev);
+        View btnNext = findViewById(R.id.btnNext);
+        View btnPP = findViewById(R.id.btnPlayPause);
+        View btnSpeed = findViewById(R.id.btnSpeed);
+        if (btnPrev != null) btnPrev.setVisibility(View.GONE);
+        if (btnNext != null) btnNext.setVisibility(View.GONE);
+        if (btnPP != null) btnPP.setVisibility(View.GONE);
+        if (btnSpeed != null) btnSpeed.setVisibility(View.GONE);
 
         video.setOnErrorListener((mp, what, extra) -> {
-            Toast.makeText(this, "播放失败 " + what + "（可在手机切换直链/推流）", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "播放失败 " + what + "（可在手机切换推流/直链或清晰度）", Toast.LENGTH_LONG).show();
             return true;
         });
-        video.setOnCompletionListener(mp -> { try { postControlJson(new JSONObject().put("action", "next").put("fromComplete", true)); } catch (Exception ignored) {} });
+        video.setOnCompletionListener(mp -> {
+            try {
+                postControlJson(new JSONObject().put("action", "next").put("fromComplete", true));
+            } catch (Exception ignored) {}
+        });
         video.setOnPreparedListener(mp -> {
             applySpeed(currentSpeed);
             video.start();
+            controller.show(4000);
         });
 
         if (url != null && !url.isEmpty()) playUrl(url);
@@ -142,6 +142,7 @@ public class PlayerActivity extends Activity {
         overlay.setVisibility(View.VISIBLE);
         ui.removeCallbacks(hideOverlay);
         ui.postDelayed(hideOverlay, overlayHideMs);
+        if (controller != null) controller.show(overlayHideMs);
     }
 
     private void applyState(JSONObject st) {
@@ -181,16 +182,12 @@ public class PlayerActivity extends Activity {
     }
 
     private void applySpeed(float speed) {
-        if (Build.VERSION.SDK_INT < 26) return;
+        if (Build.VERSION.SDK_INT < 23) return;
         try {
             PlaybackParams params = new PlaybackParams();
             params.setSpeed(speed);
-            video.getClass().getMethod("setPlaybackParams", PlaybackParams.class).invoke(video, params);
+            video.setPlaybackParams(params);
         } catch (Exception ignored) {}
-    }
-
-    private void postControl(String action) {
-        try { postControlJson(new JSONObject().put("action", action)); } catch (Exception ignored) {}
     }
 
     private void postControlJson(JSONObject body) {
@@ -234,15 +231,22 @@ public class PlayerActivity extends Activity {
         if (!allowLocalControl) return super.onKeyDown(keyCode, event);
         showOverlay();
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
-            if (video.isPlaying()) { video.pause(); postControl("pause"); }
-            else { video.start(); postControl("play"); }
+            if (video.isPlaying()) {
+                video.pause();
+                try { postControlJson(new JSONObject().put("action", "pause")); } catch (Exception ignored) {}
+            } else {
+                video.start();
+                try { postControlJson(new JSONObject().put("action", "play")); } catch (Exception ignored) {}
+            }
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            postControl("next"); return true;
+            try { postControlJson(new JSONObject().put("action", "next")); } catch (Exception ignored) {}
+            return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS || keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-            postControl("prev"); return true;
+            try { postControlJson(new JSONObject().put("action", "prev")); } catch (Exception ignored) {}
+            return true;
         }
         return super.onKeyDown(keyCode, event);
     }

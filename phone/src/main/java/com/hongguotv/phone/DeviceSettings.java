@@ -14,6 +14,8 @@ public final class DeviceSettings {
     public volatile String playMode = CastProtocol.MODE_PROXY;
     public volatile boolean autoNext = true;
     public volatile float defaultSpeed = 1.5f;
+    /** auto|360p|720p|1080p — web 公共源目前仅 360p，App 源后续按此选档 */
+    public volatile String preferredQuality = "720p";
     public volatile boolean showTvOverlay = true;
     public volatile boolean tvKeepScreenOn = true;
     public volatile boolean allowTvLocalControl = true; // 电视本机按键是否可用
@@ -49,6 +51,10 @@ public final class DeviceSettings {
         if (o.has("tvKeepScreenOn")) tvKeepScreenOn = o.optBoolean("tvKeepScreenOn", tvKeepScreenOn);
         if (o.has("allowTvLocalControl")) allowTvLocalControl = o.optBoolean("allowTvLocalControl", allowTvLocalControl);
         if (o.has("overlayHideMs")) overlayHideMs = Math.max(1000, o.optInt("overlayHideMs", overlayHideMs));
+        if (o.has("preferredQuality")) {
+            String q = o.optString("preferredQuality", preferredQuality);
+            if (q != null && !q.isEmpty()) preferredQuality = q;
+        }
         revision++;
     }
 
@@ -76,6 +82,7 @@ public final class DeviceSettings {
                 .put("tvKeepScreenOn", tvKeepScreenOn)
                 .put("allowTvLocalControl", allowTvLocalControl)
                 .put("overlayHideMs", overlayHideMs)
+                .put("preferredQuality", preferredQuality)
                 .put("revision", revision)
                 .put("bound", bound)
                 .put("boundTvIp", boundTvIp)

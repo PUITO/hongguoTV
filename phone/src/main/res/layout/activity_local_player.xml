@@ -3,21 +3,18 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000">
-    <VideoView android:id="@+id/video" android:layout_width="match_parent"
-        android:layout_height="match_parent" android:layout_gravity="center" />
-    <LinearLayout android:orientation="vertical" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:layout_gravity="bottom"
-        android:background="#99000000" android:padding="12dp">
-        <TextView android:id="@+id/title" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:textColor="#FFF" android:textSize="14sp" />
-        <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-            <Button android:id="@+id/btnPrev" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="上一集" />
-            <Button android:id="@+id/btnPush" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="推电视" />
-            <Button android:id="@+id/btnNext" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="下一集" />
-        </LinearLayout>
-    </LinearLayout>
+    <VideoView
+        android:id="@+id/video"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center" />
+    <TextView
+        android:id="@+id/title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="#66000000"
+        android:padding="10dp"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp" />
 </FrameLayout>
