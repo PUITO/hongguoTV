@@ -148,6 +148,7 @@ public class SeriesDetailActivity extends Activity {
                             if (CastServerService.CACHE != null && !fUrl.startsWith("file://") && !fUrl.startsWith("/")) {
                                 CastServerService.CACHE.setCurrent(fUrl);
                             }
+                            EpisodePrefetcher.prefetchAfter(detail, idx);
                             Toast.makeText(this, "已推送电视 · " + fQuality
                                     + (fUrl.startsWith("file") ? "（明文）" : ""), Toast.LENGTH_SHORT).show();
                             AppLog.i("推送TV source=" + AppLog.clip(fUrl, 80));
@@ -162,6 +163,7 @@ public class SeriesDetailActivity extends Activity {
                         i.putExtra(LocalPlayerActivity.EXTRA_INDEX, idx);
                         i.putExtra(LocalPlayerActivity.EXTRA_DETAIL_JSON, detail.toString());
                         startActivity(i);
+                        EpisodePrefetcher.prefetchAfter(detail, idx);
                     }
                 });
             } catch (Exception e) {

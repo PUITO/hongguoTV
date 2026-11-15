@@ -1,6 +1,7 @@
 package com.hongguotv.phone.core
 
 import com.hongguotv.phone.AppLog
+import com.hongguotv.phone.DeviceSettings
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -9,8 +10,7 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 下载 CDN 密文 → spade_a 派生密钥 → MediaCrypto CENC 解密 → 本地明文 mp4。
- * 供本机播放与推流给 TV（TV 只收明文流）。
+ * 下载 CDN 密文 → spade 解密 → 本地明文。带容量与文件数上限。
  */
 object PlaintextCache {
     private val locks = ConcurrentHashMap<String, Any>()
@@ -21,28 +21,62 @@ object PlaintextCache {
         val d = File(cacheDir, "plain")
         d.mkdirs()
         dir = d
+        enforceLimits()
     }
 
     @JvmStatic
     fun clear() {
         dir?.listFiles()?.forEach { it.delete() }
+        AppLog.i("明文缓存已清空")
     }
 
-    /**
-     * 返回本地明文文件；未加密则直接缓存原文件。
-     */
+    data class Stats(val files: Int, val bytes: Long) {
+        fun mb(): Double = bytes / (1024.0 * 1024.0)
+    }
+
+    @JvmStatic
+    fun stats(): Stats {
+        val d = dir ?: return Stats(0, 0)
+        val files = d.listFiles()?.filter { it.isFile && it.name.endsWith(".mp4") } ?: emptyList()
+        return Stats(files.size, files.sumOf { it.length() })
+    }
+
+    /** 按最旧 lastModified 删除，直到符合上限 */
+    @JvmStatic
+    fun enforceLimits() {
+        val d = dir ?: return
+        val maxMb = DeviceSettings.INSTANCE.cacheMaxMb
+        val maxFiles = DeviceSettings.INSTANCE.cacheMaxFiles
+        var files = d.listFiles()?.filter { it.isFile && it.name.endsWith(".mp4") }?.sortedBy { it.lastModified() }?.toMutableList()
+            ?: return
+        var total = files.sumOf { it.length() }
+        while (files.size > maxFiles || total > maxMb * 1024L * 1024L) {
+            if (files.isEmpty()) break
+            val victim = files.removeAt(0)
+            total -= victim.length()
+            AppLog.i("缓存淘汰 ${victim.name} size=${victim.length()}")
+            victim.delete()
+            // also drop .enc if any
+            File(d, victim.nameWithoutExtension + ".enc").delete()
+        }
+    }
+
     @JvmStatic
     fun ensurePlainFile(url: String, spadeA: String?, encrypted: Boolean): File {
         val base = dir ?: throw IllegalStateException("PlaintextCache 未 init")
         val key = md5(url + "|" + (spadeA ?: ""))
         val out = File(base, "$key.mp4")
         if (out.exists() && out.length() > 64 * 1024) {
+            out.setLastModified(System.currentTimeMillis())
             AppLog.i("明文缓存命中 ${out.name} size=${out.length()}")
             return out
         }
         val lock = locks.getOrPut(key) { Any() }
         synchronized(lock) {
-            if (out.exists() && out.length() > 64 * 1024) return out
+            if (out.exists() && out.length() > 64 * 1024) {
+                out.setLastModified(System.currentTimeMillis())
+                return out
+            }
             val encFile = File(base, "$key.enc")
             AppLog.i("开始下载 CDN → ${AppLog.clip(url, 70)} enc=$encrypted")
             download(url, encFile)
@@ -50,11 +84,13 @@ object PlaintextCache {
             if (!encrypted || spadeA.isNullOrBlank()) {
                 encFile.renameTo(out)
                 AppLog.i("无加密，直接作明文")
+                enforceLimits()
                 return out
             }
             decryptTo(encFile, out, spadeA)
             encFile.delete()
             AppLog.i("解密完成 plain=${out.length()}")
+            enforceLimits()
             return out
         }
     }
@@ -107,33 +143,25 @@ object PlaintextCache {
         AppLog.i("spade 密钥 len=${key.size}")
         val data = enc.readBytes()
         if (data.size < 32) throw IllegalStateException("文件过小")
-        // 取头部做 prepare
         val probe = minOf(data.size, 2 * 1024 * 1024)
         val head = data.copyOf(probe)
         val headerEnd = try {
             MediaCrypto.headerEnd(head, data.size.toLong())
         } catch (e: Exception) {
-            // 可能整文件需读更多
             AppLog.w("headerEnd: ${e.message}, 用整文件")
             data.size
         }
         val headerBytes = if (headerEnd <= data.size) data.copyOf(headerEnd) else data
         val prepared = MediaCrypto.prepare(headerBytes, key)
         AppLog.i("prepare samples=${prepared.samples.size} header=${prepared.header.size}")
-        // 全文件解密
         val working = data.copyOf()
-        // 写入修补后的 header
         val hLen = minOf(prepared.header.size, working.size)
         System.arraycopy(prepared.header, 0, working, 0, hLen)
         val clear = MediaCrypto.decrypt(working, 0, key, prepared)
         FileOutputStream(out).use { it.write(clear) }
-        // 简单校验
         if (clear.size >= 8) {
             val tag = String(clear, 4, 4, Charsets.US_ASCII)
             AppLog.i("明文容器 tag=$tag size=${clear.size}")
-            if (tag != "ftyp" && tag != "moov") {
-                AppLog.w("明文头异常 tag=$tag，播放可能有声无画")
-            }
         }
     }
 

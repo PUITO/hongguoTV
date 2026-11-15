@@ -14,15 +14,21 @@ public final class DeviceSettings {
     public volatile String playMode = CastProtocol.MODE_PROXY;
     public volatile boolean autoNext = true;
     public volatile float defaultSpeed = 1.5f;
-    /** auto|360p|720p|1080p — web 公共源目前仅 360p，App 源后续按此选档 */
+    /** auto|360p|480p|720p|1080p */
     public volatile String preferredQuality = "1080p";
     public volatile boolean showTvOverlay = true;
     public volatile boolean tvKeepScreenOn = true;
-    public volatile boolean allowTvLocalControl = true; // 电视本机按键是否可用
+    public volatile boolean allowTvLocalControl = true;
     public volatile int overlayHideMs = 5000;
     public volatile long revision = 1;
 
-    /** 已绑定的电视 */
+    /** 预缓存：连播/推流提前解密的集数 */
+    public volatile int prefetchEpisodes = 2;
+    /** 明文缓存上限（MB），超出按最旧删除 */
+    public volatile int cacheMaxMb = 512;
+    /** 缓存最多保留文件数 */
+    public volatile int cacheMaxFiles = 12;
+
     public volatile String boundTvIp = "";
     public volatile int boundTvPort = CastProtocol.TV_BIND_PORT;
     public volatile String boundSession = "";
@@ -55,6 +61,18 @@ public final class DeviceSettings {
             String q = o.optString("preferredQuality", preferredQuality);
             if (q != null && !q.isEmpty()) preferredQuality = q;
         }
+        if (o.has("prefetchEpisodes")) {
+            int n = o.optInt("prefetchEpisodes", prefetchEpisodes);
+            prefetchEpisodes = Math.max(0, Math.min(5, n));
+        }
+        if (o.has("cacheMaxMb")) {
+            int n = o.optInt("cacheMaxMb", cacheMaxMb);
+            cacheMaxMb = Math.max(64, Math.min(4096, n));
+        }
+        if (o.has("cacheMaxFiles")) {
+            int n = o.optInt("cacheMaxFiles", cacheMaxFiles);
+            cacheMaxFiles = Math.max(2, Math.min(50, n));
+        }
         revision++;
     }
 
@@ -62,7 +80,7 @@ public final class DeviceSettings {
         boundTvIp = tvIp == null ? "" : tvIp;
         boundTvPort = port;
         boundSession = session == null ? "" : session;
-        bound = boundTvIp.length() > 0;
+        bound = tvIp != null && !tvIp.isEmpty();
         revision++;
     }
 
@@ -78,14 +96,18 @@ public final class DeviceSettings {
                 .put("playMode", playMode)
                 .put("autoNext", autoNext)
                 .put("defaultSpeed", defaultSpeed)
+                .put("preferredQuality", preferredQuality)
                 .put("showTvOverlay", showTvOverlay)
                 .put("tvKeepScreenOn", tvKeepScreenOn)
                 .put("allowTvLocalControl", allowTvLocalControl)
                 .put("overlayHideMs", overlayHideMs)
-                .put("preferredQuality", preferredQuality)
+                .put("prefetchEpisodes", prefetchEpisodes)
+                .put("cacheMaxMb", cacheMaxMb)
+                .put("cacheMaxFiles", cacheMaxFiles)
                 .put("revision", revision)
                 .put("bound", bound)
-                .put("boundTvIp", boundTvIp)
-                .put("boundTvPort", boundTvPort);
+                .put("boundTvIp", boundTvIp == null ? "" : boundTvIp)
+                .put("boundTvPort", boundTvPort)
+                .put("boundSession", boundSession == null ? "" : boundSession);
     }
 }

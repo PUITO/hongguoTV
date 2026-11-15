@@ -141,7 +141,25 @@
                     android:layout_marginTop="12dp" android:text="推荐清晰度（公共源目前多为 360p）" />
                 <Spinner android:id="@+id/qualitySpinner" android:layout_width="match_parent"
                     android:layout_height="48dp" />
-                <Button android:id="@+id/btnOpenLogs" android:layout_width="match_parent"
+                
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp" android:textStyle="bold" android:text="缓存与预取（推流流畅度）" />
+                <TextView android:id="@+id/cacheStats" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                    android:textSize="13sp" android:textColor="@color/hg_text_secondary"
+                    android:text="缓存：计算中…" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp" android:text="预缓存集数（连播/推TV）" />
+                <Spinner android:id="@+id/prefetchSpinner" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp" android:text="缓存上限（MB）" />
+                <Spinner android:id="@+id/cacheMbSpinner" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+                <Button android:id="@+id/btnClearCache" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                    android:text="清理明文缓存" />
+<Button android:id="@+id/btnOpenLogs" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="20dp"
                     android:text="运行日志（查看/导出取流诊断）" />
                 <Button android:id="@+id/btnClearDevice" android:layout_width="match_parent"

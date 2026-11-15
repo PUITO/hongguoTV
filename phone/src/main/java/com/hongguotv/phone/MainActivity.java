@@ -127,6 +127,8 @@ public class MainActivity extends AppCompatActivity {
                         .setPositiveButton("删除", (d, w) -> {
                             WatchHistory.remove(this, sid);
                             loadSourceList(false);
+        setupCacheControls();
+
                             toast("已删除");
                         })
                         .setNegativeButton("取消", null)
@@ -646,4 +648,80 @@ public class MainActivity extends AppCompatActivity {
         net.shutdownNow();
         super.onDestroy();
     }
+
+    private void setupCacheControls() {
+        try {
+            Spinner prefetch = findViewById(R.id.prefetchSpinner);
+            Spinner cacheMb = findViewById(R.id.cacheMbSpinner);
+            TextView stats = findViewById(R.id.cacheStats);
+            Button clear = findViewById(R.id.btnClearCache);
+            if (prefetch != null) {
+                String[] opts = new String[]{"0（关闭）", "1 集", "2 集", "3 集"};
+                ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, opts);
+                prefetch.setAdapter(a);
+                int cur = Math.max(0, Math.min(3, DeviceSettings.INSTANCE.prefetchEpisodes));
+                prefetch.setSelection(cur);
+                prefetch.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                    @Override public void onItemSelected(android.widget.AdapterView<?> parent, View v, int pos, long id) {
+                        DeviceSettings.INSTANCE.prefetchEpisodes = pos;
+                        try { DeviceSettings.INSTANCE.applyJson(new org.json.JSONObject().put("prefetchEpisodes", pos)); } catch (Exception ignored) {}
+                        persistSettings();
+                    }
+                    @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+                });
+            }
+            if (cacheMb != null) {
+                String[] mbs = new String[]{"128", "256", "512", "1024", "2048"};
+                ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, mbs);
+                cacheMb.setAdapter(a);
+                int want = DeviceSettings.INSTANCE.cacheMaxMb;
+                int sel = 2;
+                for (int i = 0; i < mbs.length; i++) if (Integer.parseInt(mbs[i]) == want) sel = i;
+                cacheMb.setSelection(sel);
+                cacheMb.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                    @Override public void onItemSelected(android.widget.AdapterView<?> parent, View v, int pos, long id) {
+                        int mb = Integer.parseInt(mbs[pos]);
+                        DeviceSettings.INSTANCE.cacheMaxMb = mb;
+                        try { DeviceSettings.INSTANCE.applyJson(new org.json.JSONObject().put("cacheMaxMb", mb)); } catch (Exception ignored) {}
+                        persistSettings();
+                        com.hongguotv.phone.core.PlaintextCache.enforceLimits();
+                        refreshCacheStats();
+                    }
+                    @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+                });
+            }
+            if (clear != null) {
+                clear.setOnClickListener(v -> {
+                    com.hongguotv.phone.core.PlaintextCache.clear();
+                    refreshCacheStats();
+                    toast("缓存已清理");
+                });
+            }
+            refreshCacheStats();
+        } catch (Exception e) {
+            AppLog.w("setupCacheControls: " + e.getMessage());
+        }
+    }
+
+    private void persistSettings() {
+        try {
+            // settings already on INSTANCE; bump revision for TV
+            DeviceSettings.INSTANCE.revision++;
+        } catch (Exception ignored) {}
+    }
+
+    private void refreshCacheStats() {
+        TextView stats = findViewById(R.id.cacheStats);
+        if (stats == null) return;
+        try {
+            com.hongguotv.phone.core.PlaintextCache.Stats s = com.hongguotv.phone.core.PlaintextCache.stats();
+            stats.setText(String.format(java.util.Locale.US,
+                    "当前缓存：%d 个文件 · %.1f MB（上限 %d MB / 预取 %d 集）",
+                    s.getFiles(), s.mb(), DeviceSettings.INSTANCE.cacheMaxMb,
+                    DeviceSettings.INSTANCE.prefetchEpisodes));
+        } catch (Exception e) {
+            stats.setText("缓存统计不可用");
+        }
+    }
+
 }

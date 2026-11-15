@@ -7,8 +7,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.view.WindowManager;
 import android.widget.MediaController;
 import android.widget.TextView;
@@ -111,9 +113,15 @@ public class PlayerActivity extends Activity {
             } catch (Exception ignored) {}
         });
         video.setOnPreparedListener(mp -> {
+            try {
+                int vw = mp.getVideoWidth();
+                int vh = mp.getVideoHeight();
+                if (vw > 0 && vh > 0) fitVideoView(vw, vh);
+                mp.setVideoScalingMode(android.media.MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+            } catch (Exception ignored) {}
             applySpeed(currentSpeed);
             video.start();
-            controller.show(4000);
+            if (controller != null) controller.show(4000);
         });
 
         try {

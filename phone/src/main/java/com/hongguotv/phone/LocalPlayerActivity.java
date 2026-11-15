@@ -11,9 +11,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -244,12 +246,17 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
                 ui.post(tick);
                 showControls();
                 if (w <= 0 || h <= 0) {
-                    AppLog.w("视频宽高为 0，有声无画（HEVC/解密）");
-                    Toast.makeText(this, "有声无画：请到设置将清晰度改为 480p/360p 后重试", Toast.LENGTH_LONG).show();
+                    AppLog.w("视频宽高为 0，有声无画（编码）");
+                    Toast.makeText(this, "有声无画：请确认使用 1080p(HEVC)", Toast.LENGTH_LONG).show();
                 } else {
                     try {
-                        mp.setVideoScalingMode(android.media.MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+                        mp.setVideoScalingMode(android.media.MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
                     } catch (Exception ignored) {}
+                    fitTextureToVideo(w, h);
+                }
+                // 连播预缓存
+                if (DeviceSettings.INSTANCE.autoNext && detail != null) {
+                    EpisodePrefetcher.prefetchAfter(detail, index);
                 }
             });
             player.setOnErrorListener((mp, what, extra) -> {
