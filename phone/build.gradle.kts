@@ -2,6 +2,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 val keystoreProps = Properties().apply {
@@ -16,8 +17,8 @@ android {
         applicationId = "com.hongguotv.phone"
         minSdk = 24
         targetSdk = 35
-        versionCode = 600
-        versionName = "0.6.0"
+        versionCode = 610
+        versionName = "0.6.1"
     }
     signingConfigs {
         create("release") {
@@ -34,6 +35,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("release")
@@ -46,6 +50,7 @@ android {
 }
 dependencies {
     implementation(project(":shared"))
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.google.zxing:core:3.5.3")
