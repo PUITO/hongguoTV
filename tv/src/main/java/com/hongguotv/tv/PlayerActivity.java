@@ -268,6 +268,32 @@ public class PlayerActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
+    
+    private void fitVideoView(int videoW, int videoH) {
+        if (video == null || videoW <= 0 || videoH <= 0) return;
+        View parent = (View) video.getParent();
+        if (parent == null) return;
+        int viewW = parent.getWidth();
+        int viewH = parent.getHeight();
+        if (viewW <= 0 || viewH <= 0) {
+            parent.post(() -> fitVideoView(videoW, videoH));
+            return;
+        }
+        float videoRatio = videoW / (float) videoH;
+        float viewRatio = viewW / (float) viewH;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) video.getLayoutParams();
+        if (lp == null) lp = new FrameLayout.LayoutParams(0, 0);
+        if (videoRatio > viewRatio) {
+            lp.width = viewW;
+            lp.height = Math.max(1, Math.round(viewW / videoRatio));
+        } else {
+            lp.height = viewH;
+            lp.width = Math.max(1, Math.round(viewH * videoRatio));
+        }
+        lp.gravity = Gravity.CENTER;
+        video.setLayoutParams(lp);
+    }
+
     @Override protected void onDestroy() {
         destroyed = true;
         ui.removeCallbacks(poll);

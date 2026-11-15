@@ -349,6 +349,33 @@ public class LocalPlayerActivity extends Activity implements TextureView.Surface
         return String.format(Locale.US, "%02d:%02d", s / 60, s % 60);
     }
 
+    
+    private void fitTextureToVideo(int videoW, int videoH) {
+        if (texture == null || videoW <= 0 || videoH <= 0) return;
+        View parent = (View) texture.getParent();
+        if (parent == null) return;
+        int viewW = parent.getWidth();
+        int viewH = parent.getHeight();
+        if (viewW <= 0 || viewH <= 0) {
+            parent.post(() -> fitTextureToVideo(videoW, videoH));
+            return;
+        }
+        float videoRatio = videoW / (float) videoH;
+        float viewRatio = viewW / (float) viewH;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) texture.getLayoutParams();
+        if (lp == null) lp = new FrameLayout.LayoutParams(0, 0);
+        if (videoRatio > viewRatio) {
+            lp.width = viewW;
+            lp.height = Math.max(1, Math.round(viewW / videoRatio));
+        } else {
+            lp.height = viewH;
+            lp.width = Math.max(1, Math.round(viewH * videoRatio));
+        }
+        lp.gravity = Gravity.CENTER;
+        texture.setLayoutParams(lp);
+        AppLog.i("画面适配 video=" + videoW + "x" + videoH + " -> " + lp.width + "x" + lp.height);
+    }
+
     private void releasePlayer() {
         ui.removeCallbacks(tick);
         if (player != null) {
