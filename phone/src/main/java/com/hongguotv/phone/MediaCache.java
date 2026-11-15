@@ -93,6 +93,30 @@ public final class MediaCache {
         }
     }
 
+    static HttpURLConnection openUpstream(String url, long existing) {
+        String[] uas = {
+                "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)",
+                "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C)",
+                "Mozilla/5.0 (Linux; Android 12; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+        };
+        for (String ua : uas) {
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(12000);
+                c.setReadTimeout(30000);
+                c.setInstanceFollowRedirects(true);
+                c.setRequestProperty("User-Agent", ua);
+                c.setRequestProperty("Accept", "*/*");
+                c.setRequestProperty("Accept-Encoding", "identity");
+                if (existing > 0) c.setRequestProperty("Range", "bytes=" + existing + "-");
+                int code = c.getResponseCode();
+                if (code == 200 || code == 206) return c;
+                try { c.disconnect(); } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
     public static final class Job implements Runnable {
         final String url;
         final String key;
