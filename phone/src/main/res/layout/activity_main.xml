@@ -6,25 +6,69 @@
     <LinearLayout android:orientation="vertical" android:layout_width="match_parent"
         android:layout_height="wrap_content">
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="红果推流 0.3" android:textSize="20sp" android:textStyle="bold" />
+            android:text="红果推流 0.4 · 手机统一管理" android:textSize="18sp" android:textStyle="bold" />
         <TextView android:id="@+id/status" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:textSize="13sp" />
+        <TextView android:id="@+id/bindStatus" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:textSize="14sp" android:textStyle="bold"
+            android:textColor="#1565C0" android:text="未绑定电视" />
         <TextView android:id="@+id/pairCode" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:textSize="22sp" android:textStyle="bold" />
-        <ImageView android:id="@+id/qrImage" android:layout_width="180dp" android:layout_height="180dp"
+            android:layout_height="wrap_content" android:textSize="20sp" android:textStyle="bold" />
+        <ImageView android:id="@+id/qrImage" android:layout_width="160dp" android:layout_height="160dp"
             android:layout_gravity="center_horizontal" android:contentDescription="qr" />
         <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
             android:layout_height="wrap_content">
             <Button android:id="@+id/btnStart" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:text="启动服务" />
             <Button android:id="@+id/btnScanTv" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_height="wrap_content" android:text="扫电视码" />
+                android:layout_height="wrap_content" android:text="扫电视绑定" />
             <Button android:id="@+id/btnStop" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:text="停止" />
         </LinearLayout>
 
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textStyle="bold" android:text="红果搜索" android:layout_marginTop="8dp" />
+            android:layout_marginTop="10dp" android:textStyle="bold" android:text="播放方式（电视跟随）" />
+        <RadioGroup android:id="@+id/playModeGroup" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:orientation="vertical">
+            <RadioButton android:id="@+id/modeProxy" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="推流：手机缓存后推给电视（更稳、防盗链）"
+                android:checked="true" />
+            <RadioButton android:id="@+id/modeDirect" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:text="直链：电视直接播源站地址（省手机流量）" />
+        </RadioGroup>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:textStyle="bold" android:text="电视设置（手机统一控制）" />
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchAutoNext"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="自动连播下一集" android:checked="true" />
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchOverlay"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="电视显示控制条" android:checked="true" />
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchKeepOn"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="电视播放时保持亮屏" android:checked="true" />
+        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchTvLocal"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="允许电视本机按键控制" android:checked="true" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="默认倍速" />
+        <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <Button android:id="@+id/btnDef075" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="0.75" />
+            <Button android:id="@+id/btnDef10" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="1.0" />
+            <Button android:id="@+id/btnDef125" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="1.25" />
+            <Button android:id="@+id/btnDef15" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="1.5" />
+            <Button android:id="@+id/btnDef20" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="2.0" />
+        </LinearLayout>
+
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:textStyle="bold" android:text="红果搜索" />
         <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
             android:layout_height="wrap_content">
             <EditText android:id="@+id/searchInput" android:layout_width="0dp" android:layout_weight="1"
@@ -41,20 +85,20 @@
             <EditText android:id="@+id/epInput" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:hint="集数" android:inputType="number" />
             <Button android:id="@+id/btnResolve" android:layout_width="wrap_content"
-                android:layout_height="wrap_content" android:text="解析并推送" />
+                android:layout_height="wrap_content" android:text="解析推送" />
         </LinearLayout>
 
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textStyle="bold" android:text="或手动 URL" android:layout_marginTop="6dp" />
+            android:textStyle="bold" android:text="手动 URL" />
         <EditText android:id="@+id/urlInput" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:hint="https://...mp4" android:inputType="textUri" />
         <EditText android:id="@+id/titleInput" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:hint="标题" />
         <Button android:id="@+id/btnPush" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:text="推送到电视（缓存加速）" />
+            android:layout_height="wrap_content" android:text="推送到电视" />
 
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textStyle="bold" android:text="遥控" android:layout_marginTop="8dp" />
+            android:layout_marginTop="8dp" android:textStyle="bold" android:text="播放遥控" />
         <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
             android:layout_height="wrap_content">
             <Button android:id="@+id/btnPrev" android:layout_width="0dp" android:layout_weight="1"
@@ -79,12 +123,6 @@
             <Button android:id="@+id/btnSp20" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="wrap_content" android:text="2x" />
         </LinearLayout>
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchAutoNext"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="自动连播" android:checked="true" />
-        <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchProxy"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="手机缓存推流（更流畅）" android:checked="true" />
         <TextView android:id="@+id/cacheStatus" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:textSize="12sp" />
     </LinearLayout>

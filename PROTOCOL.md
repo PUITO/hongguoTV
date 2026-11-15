@@ -1,8 +1,27 @@
-# 协议 v0.3
+# 协议 v0.4
 
-- 手机 `8765`：状态/片源/控制/搜索/详情/**缓存流**
-- 电视 `8766`：扫码绑定 register
-- `GET /stream/current`：当前片源缓存流（支持 Range，无需配对头）
-- `GET /api/search?q=`、`GET /api/detail?seriesId=`
-- `POST /api/now` 支持 `useProxy` 与 `playlist`
-- 电视播放地址优先为局域网代理 URL，降低 CDN 卡顿与防盗链问题
+## 播放模式 playMode
+
+- `proxy`：`url` = `http://{phoneIp}:8765/stream/current`
+- `direct`：`url` = 源站 `sourceUrl`
+
+## 设置 /api/settings
+
+手机为唯一配置源。GET/POST JSON：
+
+```json
+{
+  "playMode": "proxy|direct",
+  "autoNext": true,
+  "defaultSpeed": 1.0,
+  "showTvOverlay": true,
+  "tvKeepScreenOn": true,
+  "allowTvLocalControl": true,
+  "overlayHideMs": 5000,
+  "revision": 3,
+  "bound": true,
+  "boundTvIp": "192.168.1.20"
+}
+```
+
+`GET /api/now` 与 `GET /api/control` 响应中包含 `settings` 与 `playMode`，电视轮询应用。

@@ -1,48 +1,46 @@
 package com.hongguotv.phone;
 
+import com.hongguotv.shared.CastProtocol;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class NowPlaying {
     public volatile String sourceUrl = "";
-    public volatile String proxyUrl = "";
     public volatile String title = "";
     public volatile long updatedAt;
     public final JSONArray playlist = new JSONArray();
     public volatile int index = 0;
     public volatile boolean playing = true;
     public volatile float speed = 1.0f;
-    public volatile boolean autoNext = true;
-    public volatile boolean useProxy = true;
     public volatile long seekMs = -1;
     public volatile long commandId = 0;
     public volatile String seriesId = "";
 
-    /** 电视应播放的地址：优先局域网代理。 */
     public String playUrlForTv(String phoneIp, int port) {
-        if (useProxy && sourceUrl != null && !sourceUrl.isEmpty()) {
-            return "http://" + phoneIp + ":" + port + "/stream/current";
+        DeviceSettings s = DeviceSettings.INSTANCE;
+        if (s.isProxy() && sourceUrl != null && !sourceUrl.isEmpty()) {
+            return "http://" + phoneIp + ":" + port + CastProtocol.PATH_STREAM_CURRENT;
         }
         return sourceUrl == null ? "" : sourceUrl;
     }
 
-    public synchronized void set(String url, String title, boolean proxy) {
+    public synchronized void set(String url, String title) {
         this.sourceUrl = url == null ? "" : url.trim();
         this.title = title == null ? "" : title.trim();
-        this.useProxy = proxy;
         this.updatedAt = System.currentTimeMillis();
         this.playing = true;
         this.seekMs = -1;
+        this.speed = DeviceSettings.INSTANCE.defaultSpeed;
         bump();
     }
 
-    public synchronized void setPlaylist(JSONArray list, int startIndex, boolean proxy) {
+    public synchronized void setPlaylist(JSONArray list, int startIndex) {
         while (playlist.length() > 0) playlist.remove(0);
         if (list != null) {
             for (int i = 0; i < list.length(); i++) playlist.put(list.opt(i));
         }
         index = Math.max(0, Math.min(startIndex, Math.max(0, playlist.length() - 1)));
-        this.useProxy = proxy;
         applyIndex();
     }
 
@@ -56,6 +54,7 @@ public final class NowPlaying {
         updatedAt = System.currentTimeMillis();
         playing = true;
         seekMs = 0;
+        speed = DeviceSettings.INSTANCE.defaultSpeed;
         bump();
     }
 
@@ -85,16 +84,14 @@ public final class NowPlaying {
             speed = s;
         } else if ("seek".equals(action)) {
             seekMs = body.optLong("positionMs", 0);
-        } else if ("autonext".equals(action)) {
-            autoNext = body.optBoolean("value", true);
-        } else if ("proxy".equals(action)) {
-            useProxy = body.optBoolean("value", true);
         } else if ("next".equals(action)) {
             next();
             return;
         } else if ("prev".equals(action)) {
             prev();
             return;
+        } else if ("playMode".equals(action)) {
+            DeviceSettings.INSTANCE.applyJson(new JSONObject().put("playMode", body.optString("value", CastProtocol.MODE_PROXY)));
         }
         bump();
     }
@@ -102,22 +99,24 @@ public final class NowPlaying {
     private void bump() { commandId++; }
 
     public synchronized JSONObject toJson(String phoneIp, int port) throws Exception {
-        String play = playUrlForTv(phoneIp, port);
+        DeviceSettings s = DeviceSettings.INSTANCE;
         return new JSONObject()
                 .put("ok", true)
-                .put("url", play)
+                .put("url", playUrlForTv(phoneIp, port))
                 .put("sourceUrl", sourceUrl == null ? "" : sourceUrl)
                 .put("title", title == null ? "" : title)
                 .put("updatedAt", updatedAt)
                 .put("playing", playing)
                 .put("speed", speed)
-                .put("autoNext", autoNext)
-                .put("useProxy", useProxy)
                 .put("seekMs", seekMs)
                 .put("commandId", commandId)
                 .put("index", index)
                 .put("playlistSize", playlist.length())
                 .put("seriesId", seriesId == null ? "" : seriesId)
-                .put("playlist", playlist);
+                .put("playlist", playlist)
+                .put("playMode", s.playMode)
+                .put("useProxy", s.isProxy())
+                .put("autoNext", s.autoNext)
+                .put("settings", s.toJson());
     }
 }

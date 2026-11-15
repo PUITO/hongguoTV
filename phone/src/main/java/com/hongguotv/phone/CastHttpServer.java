@@ -133,11 +133,10 @@ public final class CastHttpServer {
             }
             if ("POST".equals(method) && CastProtocol.PATH_NOW.equals(path)) {
                 JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-                boolean proxy = req.optBoolean("useProxy", true);
                 if (req.has("playlist")) {
                     JSONArray pl = req.getJSONArray("playlist");
                     int start = req.optInt("index", 0);
-                    now.setPlaylist(pl, start, proxy);
+                    now.setPlaylist(pl, start);
                     onSourceChanged();
                     writeJson(s, 200, now.toJson(phoneIp, port));
                     return;
@@ -148,9 +147,23 @@ public final class CastHttpServer {
                     writeJson(s, 400, new JSONObject().put("ok", false).put("error", "invalid_url"));
                     return;
                 }
-                now.set(url, title, proxy);
+                now.set(url, title);
                 onSourceChanged();
                 writeJson(s, 200, now.toJson(phoneIp, port));
+                return;
+            }
+            if (("GET".equals(method) || "POST".equals(method)) && CastProtocol.PATH_SETTINGS.equals(path)) {
+                if ("POST".equals(method)) {
+                    JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+                    DeviceSettings.INSTANCE.applyJson(req);
+                    // sync autoNext/speed defaults into now when relevant
+                    if (req.has("defaultSpeed")) {
+                        now.speed = DeviceSettings.INSTANCE.defaultSpeed;
+                        now.control("speed", new JSONObject().put("value", DeviceSettings.INSTANCE.defaultSpeed));
+                    }
+                    onSourceChanged();
+                }
+                writeJson(s, 200, new JSONObject().put("ok", true).put("settings", DeviceSettings.INSTANCE.toJson()));
                 return;
             }
             if (("GET".equals(method) || "POST".equals(method)) && CastProtocol.PATH_CONTROL.equals(path)) {
@@ -201,7 +214,7 @@ public final class CastHttpServer {
 
     private void onSourceChanged() {
         String src = now.sourceUrl;
-        if (src != null && !src.isEmpty() && now.useProxy) {
+        if (src != null && !src.isEmpty() && DeviceSettings.INSTANCE.isProxy()) {
             cache.setCurrent(src);
             // prefetch next
             synchronized (now) {

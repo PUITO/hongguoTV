@@ -9,7 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.KeyEvent;
 import android.view.View;
-import android.widget.Button;
+import android.view.WindowManager;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
@@ -28,6 +28,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * 电视播放器：片源与全部设置以手机为准。
+ * playMode=direct → 播 sourceUrl；proxy → 播手机 /stream/current。
+ */
 public class PlayerActivity extends Activity {
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_TITLE = "title";
@@ -41,14 +45,18 @@ public class PlayerActivity extends Activity {
     private String phoneIp, pair;
     private int phonePort;
     private long lastCommandId = -1;
+    private long lastSettingsRev = -1;
     private String currentUrl = "";
     private float currentSpeed = 1f;
     private final float[] speeds = {0.75f, 1f, 1.25f, 1.5f, 2f};
     private int speedIdx = 1;
+    private boolean allowLocalControl = true;
+    private boolean showOverlayPref = true;
+    private int overlayHideMs = 5000;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     private boolean destroyed;
-    private final Runnable hideOverlay = () -> { if (overlay != null) overlay.setVisibility(View.GONE); };
+    private final Runnable hideOverlay = () -> { if (overlay != null && showOverlayPref) overlay.setVisibility(View.GONE); };
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (destroyed) return;
@@ -76,14 +84,16 @@ public class PlayerActivity extends Activity {
         String t = getIntent().getStringExtra(EXTRA_TITLE);
         titleView.setText(t == null || t.isEmpty() ? "播放中" : t);
 
-        findViewById(R.id.btnPrev).setOnClickListener(v -> postControl("prev"));
-        findViewById(R.id.btnNext).setOnClickListener(v -> postControl("next"));
+        findViewById(R.id.btnPrev).setOnClickListener(v -> { if (allowLocalControl) postControl("prev"); showOverlay(); });
+        findViewById(R.id.btnNext).setOnClickListener(v -> { if (allowLocalControl) postControl("next"); showOverlay(); });
         findViewById(R.id.btnPlayPause).setOnClickListener(v -> {
+            if (!allowLocalControl) return;
             if (video.isPlaying()) { video.pause(); postControl("pause"); }
             else { video.start(); postControl("play"); }
             showOverlay();
         });
         findViewById(R.id.btnSpeed).setOnClickListener(v -> {
+            if (!allowLocalControl) return;
             speedIdx = (speedIdx + 1) % speeds.length;
             currentSpeed = speeds[speedIdx];
             applySpeed(currentSpeed);
@@ -93,29 +103,50 @@ public class PlayerActivity extends Activity {
         });
 
         video.setOnErrorListener((mp, what, extra) -> {
-            Toast.makeText(this, "播放失败 " + what, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "播放失败 " + what + "（可在手机切换直链/推流）", Toast.LENGTH_LONG).show();
             return true;
         });
-        video.setOnCompletionListener(mp -> postControl("next"));
+        video.setOnCompletionListener(mp -> { try { postControlJson(new JSONObject().put("action", "next").put("fromComplete", true)); } catch (Exception ignored) {} });
         video.setOnPreparedListener(mp -> {
             applySpeed(currentSpeed);
             video.start();
         });
 
         if (url != null && !url.isEmpty()) playUrl(url);
-        else Toast.makeText(this, "等待手机推送片源…", Toast.LENGTH_LONG).show();
+        else Toast.makeText(this, "等待手机推送…", Toast.LENGTH_LONG).show();
         showOverlay();
         ui.post(poll);
     }
 
+    private void applySettings(JSONObject settings) {
+        if (settings == null) return;
+        long rev = settings.optLong("revision", 0);
+        if (rev == lastSettingsRev) return;
+        lastSettingsRev = rev;
+        showOverlayPref = settings.optBoolean("showTvOverlay", true);
+        allowLocalControl = settings.optBoolean("allowTvLocalControl", true);
+        overlayHideMs = Math.max(1000, settings.optInt("overlayHideMs", 5000));
+        boolean keepOn = settings.optBoolean("tvKeepScreenOn", true);
+        if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (!showOverlayPref) overlay.setVisibility(View.GONE);
+        float def = (float) settings.optDouble("defaultSpeed", currentSpeed);
+        if (Math.abs(def - currentSpeed) > 0.01f && lastCommandId < 0) {
+            currentSpeed = def;
+            applySpeed(currentSpeed);
+        }
+    }
+
     private void showOverlay() {
+        if (!showOverlayPref) return;
         overlay.setVisibility(View.VISIBLE);
         ui.removeCallbacks(hideOverlay);
-        ui.postDelayed(hideOverlay, 5000);
+        ui.postDelayed(hideOverlay, overlayHideMs);
     }
 
     private void applyState(JSONObject st) {
         if (st == null) return;
+        applySettings(st.optJSONObject("settings"));
         long cmd = st.optLong("commandId", 0);
         String url = st.optString("url", "");
         String title = st.optString("title", "");
@@ -124,10 +155,13 @@ public class PlayerActivity extends Activity {
         long seekMs = st.optLong("seekMs", -1);
         int index = st.optInt("index", 0);
         int pl = st.optInt("playlistSize", 0);
+        String mode = st.optString("playMode", CastProtocol.MODE_PROXY);
 
         if (title != null && !title.isEmpty()) titleView.setText(title);
-        meta.setText("第" + (index + 1) + "/" + Math.max(pl, 1) + " · " + speed + "x"
-                + (st.optBoolean("useProxy", true) ? " · 缓存流" : ""));
+        meta.setText("第" + (index + 1) + "/" + Math.max(pl, 1)
+                + " · " + speed + "x · "
+                + (CastProtocol.MODE_DIRECT.equals(mode) ? "直链" : "推流"));
+
         if (url != null && !url.isEmpty() && !url.equals(currentUrl)) playUrl(url);
         if (cmd != lastCommandId) {
             lastCommandId = cmd;
@@ -162,7 +196,8 @@ public class PlayerActivity extends Activity {
     private void postControlJson(JSONObject body) {
         net.execute(() -> {
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL("http://" + phoneIp + ":" + phonePort + CastProtocol.PATH_CONTROL).openConnection();
+                HttpURLConnection c = (HttpURLConnection) new URL(
+                        "http://" + phoneIp + ":" + phonePort + CastProtocol.PATH_CONTROL).openConnection();
                 c.setConnectTimeout(3000);
                 c.setReadTimeout(3000);
                 c.setRequestMethod("POST");
@@ -196,6 +231,7 @@ public class PlayerActivity extends Activity {
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (!allowLocalControl) return super.onKeyDown(keyCode, event);
         showOverlay();
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
             if (video.isPlaying()) { video.pause(); postControl("pause"); }
