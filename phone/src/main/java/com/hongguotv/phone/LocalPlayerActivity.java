@@ -1,11 +1,11 @@
 package com.hongguotv.phone;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.media.PlaybackParams;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.MediaController;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -41,6 +41,8 @@ public class LocalPlayerActivity extends Activity {
         }
         String url = getIntent().getStringExtra(EXTRA_URL);
         String title = getIntent().getStringExtra(EXTRA_TITLE);
+        ensureCastService();
+        url = toPlayableUrl(url);
         titleView.setText(title == null ? "播放" : title);
 
         controller = new MediaController(this);
@@ -61,41 +63,76 @@ public class LocalPlayerActivity extends Activity {
         });
         video.setOnCompletionListener(mp -> playIndex(index + 1));
         video.setOnErrorListener((mp, what, extra) -> {
-            Toast.makeText(this, "播放失败，可能需切换清晰度或片源", Toast.LENGTH_LONG).show();
+            AppLog.e("VideoView error what=" + what + " extra=" + extra);
+            Toast.makeText(this, "播放失败 what=" + what + "，可尝试推送到电视", Toast.LENGTH_LONG).show();
             return true;
         });
-        // long press title area: push to TV
-        titleView.setOnLongClickListener(v -> {
-            pushCurrent();
-            return true;
-        });
-        titleView.setOnClickListener(v -> {
-            if (controller.isShowing()) controller.hide();
-            else controller.show(4000);
-        });
-        if (url != null) {
+
+        findViewById(R.id.btnPrev).setOnClickListener(v -> playIndex(index - 1));
+        findViewById(R.id.btnNext).setOnClickListener(v -> playIndex(index + 1));
+        findViewById(R.id.btnPush).setOnClickListener(v -> pushCurrent());
+
+        if (url != null && !url.isEmpty()) {
+            AppLog.i("VideoView 打开 " + AppLog.clip(url, 100));
             video.setVideoURI(Uri.parse(url));
-            video.start();
         }
     }
 
-    private void playIndex(int next) {
+    private void ensureCastService() {
+        if (CastServerService.INSTANCE != null) return;
+        try {
+            Intent i = new Intent(this, CastServerService.class);
+            String pair = "0000";
+            try {
+                // pair stored in preferences via MainActivity flow
+                pair = getSharedPreferences("device_settings", MODE_PRIVATE)
+                        .getString("pairCode", "0000");
+            } catch (Exception ignored) {}
+            i.putExtra(CastServerService.EXTRA_PAIR, pair);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+            for (int n = 0; n < 40 && CastServerService.INSTANCE == null; n++) {
+                try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+            }
+            AppLog.i("投屏服务 " + (CastServerService.INSTANCE != null ? "已就绪" : "未就绪"));
+        } catch (Exception e) {
+            AppLog.w("启动投屏服务失败: " + e.getMessage());
+        }
+    }
+
+    private String toPlayableUrl(String url) {
+        if (url == null || url.isEmpty()) return url;
+        try {
+            CastServerService svc = CastServerService.INSTANCE;
+            if (svc != null && svc.getServer() != null) {
+                String proxy = svc.getServer().proxyUrl(url);
+                if (proxy != null && !proxy.isEmpty()) {
+                    AppLog.i("本地播放走代理 " + AppLog.clip(proxy, 80));
+                    return proxy;
+                }
+            }
+            AppLog.w("投屏服务未启动，直连 CDN");
+        } catch (Exception e) {
+            AppLog.w("代理地址失败: " + e.getMessage());
+        }
+        return url;
+    }
+
+    private void playIndex(int idx) {
         if (detail == null) return;
         try {
             JSONArray eps = detail.getJSONArray("episodes");
-            if (next < 0 || next >= eps.length()) {
-                Toast.makeText(this, "没有更多集了", Toast.LENGTH_SHORT).show();
+            if (idx < 0 || idx >= eps.length()) return;
+            JSONObject ep = eps.getJSONObject(idx);
+            String u = ep.optString("url");
+            if (u.isEmpty()) {
+                Toast.makeText(this, "本集无地址，请回详情重新取流", Toast.LENGTH_SHORT).show();
                 return;
             }
-            JSONObject ep = eps.getJSONObject(next);
-            if (ep.optBoolean("locked") || ep.optString("url").isEmpty()) {
-                Toast.makeText(this, "本集公共源不可用（需 App 高清源）", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            index = next;
-            String title = detail.optString("title") + " 第" + (index + 1) + "集";
-            titleView.setText(title);
-            video.setVideoURI(Uri.parse(ep.optString("url")));
+            index = idx;
+            titleView.setText(detail.optString("title") + " 第" + (index + 1) + "集");
+            ensureCastService();
+            video.setVideoURI(Uri.parse(toPlayableUrl(u)));
             video.start();
         } catch (Exception e) {
             Toast.makeText(this, "切换失败", Toast.LENGTH_SHORT).show();
@@ -123,7 +160,7 @@ public class LocalPlayerActivity extends Activity {
                 }
             }
             CastServerService.NOW.setPlaylist(pl, playIdx);
-            if (DeviceSettings.INSTANCE.isProxy() && CastServerService.CACHE != null) {
+            if (CastServerService.CACHE != null) {
                 CastServerService.CACHE.setCurrent(eps.getJSONObject(index).optString("url"));
             }
             Toast.makeText(this, "已推送到电视", Toast.LENGTH_SHORT).show();

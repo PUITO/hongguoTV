@@ -50,6 +50,18 @@ public final class CastHttpServer {
         pool.execute(this::acceptLoop);
     }
 
+    /** 供本机播放：把源写入 now 后走 /stream/current，带官方 UA 拉 CDN。 */
+    public String proxyUrl(String sourceUrl) {
+        if (sourceUrl == null || sourceUrl.isEmpty()) return sourceUrl;
+        try {
+            now.sourceUrl = sourceUrl;
+            if (cache != null) cache.setCurrent(sourceUrl);
+            return "http://127.0.0.1:" + port + CastProtocol.PATH_STREAM_CURRENT;
+        } catch (Exception e) {
+            return sourceUrl;
+        }
+    }
+
     public void stop() {
         running.set(false);
         try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) {}
@@ -304,7 +316,9 @@ public final class CastHttpServer {
         c.setConnectTimeout(10000);
         c.setReadTimeout(30000);
         c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "Mozilla/5.0 HongguoTV-Proxy/0.3");
+        c.setRequestProperty("User-Agent", "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C)");
+        c.setRequestProperty("Referer", "https://www.hongguoduanju.com/");
+        c.setRequestProperty("Accept", "*/*");
         if (rangeHeader != null && !rangeHeader.isEmpty()) c.setRequestProperty("Range", rangeHeader);
         int code = c.getResponseCode();
         InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();

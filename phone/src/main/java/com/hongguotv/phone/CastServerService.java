@@ -18,10 +18,13 @@ public class CastServerService extends Service {
     public static final String EXTRA_PAIR = "pair";
     public static final NowPlaying NOW = new NowPlaying();
     public static MediaCache CACHE;
+    public static CastServerService INSTANCE;
     private CastHttpServer server;
+    public CastHttpServer getServer() { return server; }
 
     @Override public void onCreate() {
         super.onCreate();
+        INSTANCE = this;
         CACHE = new MediaCache(this);
     }
 
@@ -41,6 +44,7 @@ public class CastServerService extends Service {
 
     @Override public void onDestroy() {
         if (server != null) server.stop();
+        if (INSTANCE == this) INSTANCE = null;
         super.onDestroy();
     }
 

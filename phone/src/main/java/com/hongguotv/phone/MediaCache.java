@@ -124,7 +124,9 @@ public final class MediaCache {
                 c.setConnectTimeout(12000);
                 c.setReadTimeout(30000);
                 c.setInstanceFollowRedirects(true);
-                c.setRequestProperty("User-Agent", "Mozilla/5.0 HongguoTV-Cache/0.3");
+                c.setRequestProperty("User-Agent", "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C)");
+        c.setRequestProperty("Referer", "https://www.hongguoduanju.com/");
+        c.setRequestProperty("Accept", "*/*");
                 if (existing > 0) {
                     c.setRequestProperty("Range", "bytes=" + existing + "-");
                 }

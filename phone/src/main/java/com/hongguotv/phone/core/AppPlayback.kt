@@ -170,16 +170,26 @@ object AppPlayback {
     fun fetchBest(vid: String, preferred: String?): Stream? {
         val list = fetchStreams(vid)
         if (list.isEmpty()) return null
+        for (s in list) {
+            AppLog.i("候选流 q=${s.quality} h=${s.height} url=${AppLog.clip(s.url, 70)}")
+        }
         val want = when (preferred) {
             "360p" -> 360
             "1080p" -> 1080
             "720p" -> 720
             else -> 720
         }
-        return list.minByOrNull {
-            val h = if (it.height > 0) it.height else Regex("(\\d{3,4})").find(it.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
-            kotlin.math.abs(h - want)
+        fun heightOf(s: Stream): Int {
+            if (s.height > 0) return s.height
+            return Regex("(\\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+        }
+        val best = list.minByOrNull { s ->
+            val h = heightOf(s)
+            val base = if (h > 0) h else want
+            (if (h == 0) 10000 else 0) + kotlin.math.abs(base - want)
         } ?: list.first()
+        AppLog.i("选定流 q=${best.quality} h=${best.height} url=${AppLog.clip(best.url, 80)}")
+        return best
     }
 
     private fun registerDevice(): Identity {
@@ -421,9 +431,31 @@ object AppPlayback {
             }
             return false
         }
-        val h = item.optInt("vheight", item.optInt("height", item.optInt("video_height", 0)))
-        var label = item.optString("definition", item.optString("quality_desc", item.optString("quality", "")))
+        val meta = item.optJSONObject("video_meta")
+        val h = item.optInt(
+            "vheight",
+            item.optInt(
+                "height",
+                item.optInt(
+                    "video_height",
+                    meta?.optInt("height", meta.optInt("vheight", 0)) ?: 0,
+                ),
+            ),
+        )
+        var label = item.optString(
+            "definition",
+            item.optString(
+                "quality_desc",
+                item.optString("quality", item.optString("quality_type", meta?.optString("definition", "") ?: "")),
+            ),
+        )
         if (label.isBlank() && h > 0) label = "${h}p"
+        // 跳过明显非视频
+        val ctype = item.optString("logo_type", item.optString("media_type", ""))
+        if (ctype.contains("audio", true)) {
+            AppLog.w("跳过音频流 $label")
+            return false
+        }
         out += Stream(url, label.ifBlank { "app" }, h)
         return true
     }
