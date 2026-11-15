@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.hongguotv.phone.core
 
+import android.content.Context
 import com.hongguotv.phone.AppLog
-
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -15,10 +15,8 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.GZIPOutputStream
 
 /**
- * 对齐 hongguo-drama `app-source.js` + `playback-device.js`：
- * 1. 匿名 device_register（无需登录）
- * 2. VIDEO_TAB GET（带 video_id）优先；失败再 multi_video_model POST gzip
- * 3. PlayerSigner（x-argus / x-ladon）签最终 query + body
+ * 对齐 hongguo-drama：匿名注册 + VIDEO_TAB / multi_video_model。
+ * 针对 empty body：换设备重试、Connection:close、非 gzip POST。
  */
 object AppPlayback {
     data class Identity(val deviceId: String, val installId: String, val cdid: String)
@@ -31,7 +29,6 @@ object AppPlayback {
     private val VIDEO_UA =
         "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
 
-    /** 与 app-source.js DEVICE / PLAYBACK_DEVICE 对齐 */
     private fun baseDevice(id: Identity): LinkedHashMap<String, String> = linkedMapOf(
         "ac" to "wifi",
         "channel" to "update_64",
@@ -65,18 +62,41 @@ object AppPlayback {
 
     private val cached = AtomicReference<Identity?>(null)
     private var lastError: String = ""
+    @Volatile private var appContext: Context? = null
 
     @JvmStatic fun lastError(): String = lastError
 
-    @JvmStatic fun clearIdentity() { cached.set(null) }
+    @JvmStatic
+    fun init(ctx: Context) {
+        appContext = ctx.applicationContext
+        // 尝试加载上次成功身份，减少频繁注册
+        if (cached.get() == null) {
+            loadPersisted()?.let { cached.set(it) }
+        }
+    }
+
+    @JvmStatic fun clearIdentity() {
+        cached.set(null)
+        appContext?.getSharedPreferences("app_playback", Context.MODE_PRIVATE)?.edit()?.clear()?.apply()
+        AppLog.i("已清除播放设备身份")
+    }
 
     @JvmStatic
-    fun obtainIdentity(): Identity {
-        cached.get()?.let { return it }
-        synchronized(this) {
+    fun obtainIdentity(forceNew: Boolean = false): Identity {
+        if (!forceNew) {
             cached.get()?.let { return it }
+            loadPersisted()?.let {
+                cached.set(it)
+                return it
+            }
+        }
+        synchronized(this) {
+            if (!forceNew) {
+                cached.get()?.let { return it }
+            }
             val id = registerDevice()
             cached.set(id)
+            persist(id)
             return id
         }
     }
@@ -85,38 +105,61 @@ object AppPlayback {
     fun fetchStreams(vid: String): List<Stream> {
         lastError = ""
         AppLog.i("取流开始 vid=$vid")
-        val id = try {
-            obtainIdentity()
-        } catch (e: Exception) {
-            lastError = "注册失败: ${e.message}"
-            AppLog.e("设备注册失败", e)
-            throw e
-        }
-        AppLog.i("设备 did=${id.deviceId} iid=${id.installId} cdid=${id.cdid.take(8)}…")
+        // 最多：当前设备 2 次路径 + 换设备再 2 次
         val errors = mutableListOf<String>()
-        try {
-            val list = fetchTabGet(id, vid)
-            if (list.isNotEmpty()) {
-                AppLog.i("TAB成功 streams=${list.size} best=${list.first().quality}/${list.first().height}p")
-                return list
+        for (round in 0 until 2) {
+            val forceNew = round > 0
+            val id = try {
+                obtainIdentity(forceNew)
+            } catch (e: Exception) {
+                lastError = "注册失败: ${e.message}"
+                AppLog.e("设备注册失败", e)
+                throw e
             }
-            errors += "TAB空响应"
-            AppLog.w("TAB 无可用清晰度")
-        } catch (e: Exception) {
-            errors += "TAB:${e.message}"
-            AppLog.w("TAB 失败: ${e.message}")
-        }
-        try {
-            val list = fetchApiPost(id, vid)
-            if (list.isNotEmpty()) {
-                AppLog.i("POST成功 streams=${list.size} best=${list.first().quality}")
-                return list
+            AppLog.i("设备#${round + 1} did=${id.deviceId} iid=${id.installId} forceNew=$forceNew")
+
+            // 1 TAB GET
+            try {
+                val list = fetchTabGet(id, vid, closeConn = round > 0)
+                if (list.isNotEmpty()) {
+                    AppLog.i("TAB成功 streams=${list.size} q=${list.first().quality}")
+                    return list
+                }
+                errors += "TAB空模型"
+            } catch (e: Exception) {
+                errors += "TAB:${e.message}"
+                AppLog.w("TAB 失败: ${e.message}")
             }
-            errors += "POST空模型"
-            AppLog.w("POST 无可用清晰度")
-        } catch (e: Exception) {
-            errors += "POST:${e.message}"
-            AppLog.w("POST 失败: ${e.message}")
+
+            // 2 POST gzip
+            try {
+                val list = fetchApiPost(id, vid, gzip = true, closeConn = true)
+                if (list.isNotEmpty()) {
+                    AppLog.i("POST-gzip成功 streams=${list.size} q=${list.first().quality}")
+                    return list
+                }
+                errors += "POST-gzip空模型"
+            } catch (e: Exception) {
+                errors += "POST-gzip:${e.message}"
+                AppLog.w("POST-gzip 失败: ${e.message}")
+            }
+
+            // 3 POST 明文 JSON（部分节点对 gzip 返回空）
+            try {
+                val list = fetchApiPost(id, vid, gzip = false, closeConn = true)
+                if (list.isNotEmpty()) {
+                    AppLog.i("POST-raw成功 streams=${list.size} q=${list.first().quality}")
+                    return list
+                }
+                errors += "POST-raw空模型"
+            } catch (e: Exception) {
+                errors += "POST-raw:${e.message}"
+                AppLog.w("POST-raw 失败: ${e.message}")
+            }
+
+            // 本轮全空 → 清身份换设备
+            AppLog.w("第${round + 1}轮无流，准备换设备")
+            clearIdentity()
         }
         lastError = errors.joinToString(" | ")
         AppLog.e("取流全部失败: $lastError")
@@ -160,12 +203,12 @@ object AppPlayback {
         val body = DeviceRegister.payload(device)
         val url = DeviceRegister.url()
         val headers = DeviceRegister.headers(body, device)
-        val conn = open(url, "POST", headers)
-        conn.setRequestProperty("Accept-Encoding", "identity")
+        val conn = open(url, "POST", headers, closeConn = false)
+        // 注册不要强制 identity，避免解压问题；也不要手动 Accept-Encoding
         conn.outputStream.use { it.write(body) }
         val code = conn.responseCode
         val text = readBody(conn)
-        AppLog.i("注册 HTTP $code body=${AppLog.clip(text, 180)}")
+        AppLog.i("注册 HTTP $code hdrs=${headerSummary(conn)} body=${AppLog.clip(text, 180)}")
         if (code >= 400) throw IllegalStateException("register HTTP $code ${text.take(120)}")
         val registered = DeviceRegister.parse(text)
             ?: throw IllegalStateException("register parse: ${text.take(160)}")
@@ -178,7 +221,7 @@ object AppPlayback {
         return Identity(registered.deviceId, registered.installId, cdid)
     }
 
-    private fun fetchTabGet(id: Identity, vid: String): List<Stream> {
+    private fun fetchTabGet(id: Identity, vid: String, closeConn: Boolean): List<Stream> {
         val ticket = System.currentTimeMillis()
         val khronos = ticket / 1000
         val params = baseDevice(id)
@@ -196,7 +239,7 @@ object AppPlayback {
         val query = encodeQuery(params)
         val url = VIDEO_TAB + "?" + query
         val signed = PlayerSigner.headers(query, null, khronos)
-        AppLog.i("TAB 签名 argusLen=${signed["x-argus"]?.length ?: 0} ladon=${AppLog.clip(signed["x-ladon"] ?: "", 24)}")
+        AppLog.i("TAB 签名 argusLen=${signed["x-argus"]?.length ?: 0}")
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,
             "Accept" to "application/json; charset=utf-8,application/x-protobuf",
@@ -208,24 +251,22 @@ object AppPlayback {
             "x-tt-store-region" to "cn",
             "x-tt-store-region-src" to "did",
             "x-tt-request-tag" to "t=0;n=0",
-            "Accept-Encoding" to "identity",
         )
+        if (closeConn) headers["Connection"] = "close"
         headers.putAll(signed)
-        val conn = open(url, "GET", headers)
+        val conn = open(url, "GET", headers, closeConn)
         val code = conn.responseCode
         val text = readBody(conn)
-        AppLog.i("TAB HTTP $code len=${text.length} body=${AppLog.clip(text, 220)}")
+        AppLog.i("TAB HTTP $code hdrs=${headerSummary(conn)} len=${text.length} body=${AppLog.clip(text, 220)}")
         if (code >= 400) throw IllegalStateException("HTTP $code")
         if (text.isBlank()) throw IllegalStateException("empty body")
         val root = JSONObject(text)
         val biz = root.optInt("code", root.optInt("Code", 0))
         if (biz != 0) throw IllegalStateException("code $biz")
-        val streams = parseStreams(root)
-        AppLog.i("TAB 解析 streams=${streams.size}")
-        return streams
+        return parseStreams(root)
     }
 
-    private fun fetchApiPost(id: Identity, vid: String): List<Stream> {
+    private fun fetchApiPost(id: Identity, vid: String, gzip: Boolean, closeConn: Boolean): List<Stream> {
         val payload = JSONObject()
             .put(
                 "biz_param",
@@ -241,7 +282,8 @@ object AppPlayback {
             )
             .put("mixed_video_id_map", JSONObject().put("1004", JSONArray().put(vid)))
             .toString()
-        val body = gzip(payload.toByteArray(Charsets.UTF_8))
+        val raw = payload.toByteArray(Charsets.UTF_8)
+        val body = if (gzip) gzip(raw) else raw
         val ticket = System.currentTimeMillis()
         val khronos = ticket / 1000
         val params = baseDevice(id)
@@ -250,12 +292,11 @@ object AppPlayback {
         val query = encodeQuery(params)
         val url = VIDEO_API + "?" + query
         val signed = PlayerSigner.headers(query, body, khronos)
-        AppLog.i("POST 签名 argusLen=${signed["x-argus"]?.length ?: 0} bodyGzip=${body.size}")
+        AppLog.i("POST 签名 gzip=$gzip argusLen=${signed["x-argus"]?.length ?: 0} body=${body.size}")
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,
             "Accept" to "application/json; charset=utf-8,application/x-protobuf",
             "Content-Type" to "application/json; charset=UTF-8",
-            "Content-Encoding" to "gzip",
             "sdk-version" to "2",
             "x-xs-from-web" to "0",
             "passport-sdk-version" to "5051452",
@@ -263,28 +304,26 @@ object AppPlayback {
             "x-tt-dt" to "",
             "x-tt-store-region" to "cn",
             "x-tt-store-region-src" to "did",
-            "Accept-Encoding" to "identity",
         )
+        if (gzip) headers["Content-Encoding"] = "gzip"
+        if (closeConn) headers["Connection"] = "close"
         headers.putAll(signed)
-        val conn = open(url, "POST", headers)
+        val conn = open(url, "POST", headers, closeConn)
         conn.outputStream.use { it.write(body) }
         val code = conn.responseCode
         val text = readBody(conn)
-        AppLog.i("POST HTTP $code len=${text.length} body=${AppLog.clip(text, 220)}")
+        AppLog.i("POST HTTP $code gzip=$gzip hdrs=${headerSummary(conn)} len=${text.length} body=${AppLog.clip(text, 220)}")
         if (code >= 400) throw IllegalStateException("HTTP $code")
         if (text.isBlank()) throw IllegalStateException("empty body")
         val root = JSONObject(text)
         val biz = root.optInt("code", root.optInt("Code", 0))
         if (biz != 0) throw IllegalStateException("code $biz")
-        val streams = parseStreams(root)
-        AppLog.i("POST 解析 streams=${streams.size}")
-        return streams
+        return parseStreams(root)
     }
 
     private fun parseStreams(root: JSONObject): List<Stream> {
         val out = ArrayList<Stream>()
         val data = root.optJSONObject("data") ?: root
-        // drama / 官方：data 直接以 vid 为 key → { video_model: "<json string>", ... }
         val keys = data.keys()
         var entryCount = 0
         while (keys.hasNext()) {
@@ -294,7 +333,7 @@ object AppPlayback {
             when (v) {
                 is JSONObject -> {
                     collectModel(v.opt("video_model"), out)
-                    collectModel(v, out) // 有时 video_list 在顶层
+                    collectModel(v, out)
                 }
                 is String -> if (v.startsWith("{")) collectModel(v, out)
             }
@@ -308,8 +347,8 @@ object AppPlayback {
             for (i in 0 until arr.length()) collectModel(arr.opt(i), out)
         }
         AppLog.i("parseStreams entries=$entryCount streams=${out.size}")
-        if (out.isEmpty()) {
-            AppLog.w("解析无流 dataKeys=${data.keys().asSequence().toList().take(5)} sample=${AppLog.clip(data.toString(), 300)}")
+        if (out.isEmpty() && entryCount > 0) {
+            AppLog.w("解析无流 sample=${AppLog.clip(data.toString(), 320)}")
         }
         return out.distinctBy { it.url }
     }
@@ -322,32 +361,22 @@ object AppPlayback {
                 is String -> if (raw.trimStart().startsWith("{")) JSONObject(raw) else return
                 else -> return
             }
-            // video_model 可能再包一层
             val nested = model.opt("video_model")
-            if (nested is String && nested.trimStart().startsWith("{")) {
-                collectModel(nested, out)
-            } else if (nested is JSONObject) {
-                collectModel(nested, out)
-            }
-            val keySeedRaw = model.optString("key_seed").ifBlank {
-                model.optJSONObject("video_list")?.let { null } ?: ""
-            }
+            if (nested is String && nested.trimStart().startsWith("{")) collectModel(nested, out)
+            else if (nested is JSONObject) collectModel(nested, out)
+
             val keySeed = model.optString("key_seed").takeIf { it.isNotBlank() }?.let {
                 runCatching { decode64(it) }.getOrNull()
             }
-            var videoList = model.optJSONObject("video_list")
-            // 有些结构 video_list 是数组
+            val videoList = model.optJSONObject("video_list")
             if (videoList == null) {
-                val arr = model.optJSONArray("video_list")
-                if (arr != null) {
+                model.optJSONArray("video_list")?.let { arr ->
                     for (i in 0 until arr.length()) {
-                        val item = arr.optJSONObject(i) ?: continue
-                        extractItem(item, keySeed, out)
+                        arr.optJSONObject(i)?.let { extractItem(it, keySeed, out) }
                     }
-                    return
                 }
+                return
             }
-            if (videoList == null) return
             val vkeys = videoList.keys()
             var n = 0
             var ok = 0
@@ -370,7 +399,6 @@ object AppPlayback {
             item.optJSONArray("backup_url_list")?.let { arr ->
                 for (i in 0 until arr.length()) add(arr.optString(i))
             }
-            // 有时嵌套 play_addr / url_list
             item.optJSONObject("play_addr")?.optJSONArray("url_list")?.let { arr ->
                 for (i in 0 until arr.length()) add(arr.optString(i))
             }
@@ -388,8 +416,8 @@ object AppPlayback {
             }
         }
         if (!url.startsWith("http")) {
-            if (candidates.any { it.isNotBlank() }) {
-                AppLog.w("url解码失败 ${AppLog.clip(candidates.first { it.isNotBlank() }, 50)} err=$lastErr")
+            if (candidates.any { !it.isNullOrBlank() }) {
+                AppLog.w("url解码失败 ${AppLog.clip(candidates.first { !it.isNullOrBlank() }, 50)} err=$lastErr")
             }
             return false
         }
@@ -402,17 +430,14 @@ object AppPlayback {
 
     private fun decodePlayUrl(value: String, keySeed: ByteArray?): String {
         if (value.startsWith("http")) return value
-        // 1) 标准 base64 明文 URL
         runCatching {
             val plain = String(decode64(value), Charsets.UTF_8).trim()
             if (plain.startsWith("http")) return plain
         }
-        // 2) Spade + key_seed 解密（官方加密地址）
         if (keySeed != null) {
             runCatching { return MediaCrypto.decryptUrl(value, keySeed) }
                 .onFailure { AppLog.w("MediaCrypto.decryptUrl: ${it.message}") }
         }
-        // 3) 无 key 时仍尝试按 a8 头解密会失败，保留原值
         return value
     }
 
@@ -427,7 +452,7 @@ object AppPlayback {
         return bos.toByteArray()
     }
 
-    private fun open(url: String, method: String, headers: Map<String, String>): HttpURLConnection {
+    private fun open(url: String, method: String, headers: Map<String, String>, closeConn: Boolean): HttpURLConnection {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 12000
         conn.readTimeout = 15000
@@ -435,12 +460,51 @@ object AppPlayback {
         conn.instanceFollowRedirects = false
         conn.doInput = true
         if (method == "POST") conn.doOutput = true
-        headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+        // 不手动设 Accept-Encoding，让系统处理 gzip 解压
+        headers.forEach { (k, v) ->
+            if (!k.equals("Accept-Encoding", true)) conn.setRequestProperty(k, v)
+        }
+        if (closeConn) conn.setRequestProperty("Connection", "close")
         return conn
     }
 
     private fun readBody(conn: HttpURLConnection): String {
-        val stream = if (conn.responseCode >= 400) conn.errorStream else conn.inputStream
+        val stream = try {
+            if (conn.responseCode >= 400) conn.errorStream else conn.inputStream
+        } catch (_: Exception) {
+            null
+        }
         return stream?.readBytes()?.toString(StandardCharsets.UTF_8) ?: ""
+    }
+
+    private fun headerSummary(conn: HttpURLConnection): String {
+        return try {
+            val cl = conn.getHeaderField("Content-Length")
+            val ce = conn.getHeaderField("Content-Encoding")
+            val ct = conn.getHeaderField("Content-Type")
+            "cl=$cl ce=$ce ct=$ct"
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun persist(id: Identity) {
+        val ctx = appContext ?: return
+        ctx.getSharedPreferences("app_playback", Context.MODE_PRIVATE).edit()
+            .putString("device_id", id.deviceId)
+            .putString("install_id", id.installId)
+            .putString("cdid", id.cdid)
+            .apply()
+    }
+
+    private fun loadPersisted(): Identity? {
+        val ctx = appContext ?: return null
+        val sp = ctx.getSharedPreferences("app_playback", Context.MODE_PRIVATE)
+        val d = sp.getString("device_id", null) ?: return null
+        val i = sp.getString("install_id", null) ?: return null
+        val c = sp.getString("cdid", null) ?: return null
+        if (d.isBlank() || i.isBlank() || d == "0") return null
+        AppLog.i("加载已保存设备 did=$d")
+        return Identity(d, i, c)
     }
 }

@@ -225,7 +225,13 @@ public class MainActivity extends AppCompatActivity {
         View openLogs = findViewById(R.id.btnOpenLogs);
         if (openLogs != null) openLogs.setOnClickListener(v ->
                 startActivity(new Intent(this, LogActivity.class)));
+        View clearDev = findViewById(R.id.btnClearDevice);
+        if (clearDev != null) clearDev.setOnClickListener(v -> {
+            com.hongguotv.phone.core.AppPlayback.clearIdentity();
+            toast("已重置播放设备，请重试播放");
+        });
         AppLog.i("MainActivity 启动");
+        com.hongguotv.phone.core.AppPlayback.init(this);
 
         findViewById(R.id.btnStart).setOnClickListener(v -> startServer());
         findViewById(R.id.btnStop).setOnClickListener(v -> stopServer());

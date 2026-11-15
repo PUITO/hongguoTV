@@ -144,6 +144,9 @@
                 <Button android:id="@+id/btnOpenLogs" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="20dp"
                     android:text="运行日志（查看/导出取流诊断）" />
+                <Button android:id="@+id/btnClearDevice" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                    android:text="重置播放设备身份（取流异常时点）" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="6dp" android:textSize="12sp"
                     android:textColor="@color/hg_text_secondary"
