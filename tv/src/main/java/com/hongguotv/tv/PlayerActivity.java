@@ -133,13 +133,13 @@ public class PlayerActivity extends Activity {
     }
 
     private void applySpeed(float speed) {
-        if (Build.VERSION.SDK_INT >= 23) {
-            try {
-                PlaybackParams params = new PlaybackParams();
-                params.setSpeed(speed);
-                video.setPlaybackParams(params);
-            } catch (Exception ignored) {}
-        }
+        if (Build.VERSION.SDK_INT < 26) return;
+        try {
+            PlaybackParams params = new PlaybackParams();
+            params.setSpeed(speed);
+            // VideoView#setPlaybackParams since API 26
+            video.getClass().getMethod("setPlaybackParams", PlaybackParams.class).invoke(video, params);
+        } catch (Exception ignored) {}
     }
 
     private void postControl(String action) {
