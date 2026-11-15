@@ -38,6 +38,24 @@ public final class WatchHistory {
         } catch (Exception ignored) {}
     }
 
+    public static void remove(Context ctx, String seriesId) {
+        if (seriesId == null || seriesId.isEmpty()) return;
+        try {
+            JSONArray old = list(ctx);
+            JSONArray next = new JSONArray();
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject o = old.getJSONObject(i);
+                if (seriesId.equals(o.optString("seriesId"))) continue;
+                next.put(o);
+            }
+            prefs(ctx).edit().putString(KEY, next.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    public static void clear(Context ctx) {
+        prefs(ctx).edit().putString(KEY, "[]").apply();
+    }
+
     private static SharedPreferences prefs(Context ctx) {
         return ctx.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE);
     }

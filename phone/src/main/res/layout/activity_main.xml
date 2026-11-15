@@ -70,16 +70,23 @@
                     android:layout_height="wrap_content" android:text="搜索" />
             </LinearLayout>
             <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:layout_marginTop="8dp">
-                <Button android:id="@+id/tabRecommend" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="推荐" />
-                <Button android:id="@+id/tabHistory" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="历史" />
+                android:layout_height="wrap_content" android:layout_marginTop="10dp"
+                android:padding="4dp">
+                <TextView android:id="@+id/tabRecommend" android:layout_width="0dp" android:layout_weight="1"
+                    android:layout_height="36dp" android:gravity="center" android:text="推荐"
+                    android:textStyle="bold" android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_tab_selected" android:clickable="true"
+                    android:focusable="true" />
+                <TextView android:id="@+id/tabHistory" android:layout_width="0dp" android:layout_weight="1"
+                    android:layout_height="36dp" android:gravity="center" android:text="历史"
+                    android:textStyle="bold" android:textColor="#666666" android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_tab_normal" android:clickable="true"
+                    android:focusable="true" />
             </LinearLayout>
             <TextView android:id="@+id/listHeader" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:layout_marginTop="4dp"
-                android:text="推荐" android:textStyle="bold" android:textSize="13sp"
-                android:textColor="@color/hg_text_secondary" />
+                android:layout_height="wrap_content" android:layout_marginTop="6dp"
+                android:text="推荐 · 点击进入 · 历史可长按删除"
+                android:textSize="12sp" android:textColor="@color/hg_text_secondary" />
             <ListView android:id="@+id/seriesList" android:layout_width="match_parent"
                 android:layout_height="0dp" android:layout_weight="1"
                 android:divider="#EEEEEE" android:dividerHeight="1dp" />
@@ -138,40 +145,97 @@
         </ScrollView>
 
         <!-- 3 遥控 -->
-        <LinearLayout android:orientation="vertical" android:layout_width="match_parent"
-            android:layout_height="match_parent" android:padding="16dp" android:gravity="center_horizontal">
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="遥控器" android:textSize="20sp" android:textStyle="bold" android:gravity="center" />
-            <TextView android:id="@+id/remoteHint" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:layout_marginTop="6dp"
-                android:textSize="13sp" android:gravity="center" android:textColor="@color/hg_text_secondary" />
-            <FrameLayout android:layout_width="280dp" android:layout_height="280dp"
-                android:layout_marginTop="24dp" android:background="@drawable/bg_remote">
-                <Button android:id="@+id/btnPlay" android:layout_width="88dp" android:layout_height="88dp"
-                    android:layout_gravity="center" android:text="播放" />
-                <Button android:id="@+id/btnPause" android:layout_width="72dp" android:layout_height="48dp"
-                    android:layout_gravity="center" android:layout_marginTop="70dp" android:text="暂停" />
-                <Button android:id="@+id/btnPrev" android:layout_width="72dp" android:layout_height="48dp"
-                    android:layout_gravity="center_vertical|start" android:layout_marginStart="16dp" android:text="上一集" />
-                <Button android:id="@+id/btnNext" android:layout_width="72dp" android:layout_height="48dp"
-                    android:layout_gravity="center_vertical|end" android:layout_marginEnd="16dp" android:text="下一集" />
-            </FrameLayout>
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="20dp" android:gravity="center" android:text="倍速" />
-            <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-                <Button android:id="@+id/btnSp075" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="0.75" />
-                <Button android:id="@+id/btnSp10" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="1.0" />
-                <Button android:id="@+id/btnSp125" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="1.25" />
-                <Button android:id="@+id/btnSp15" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="1.5" />
-                <Button android:id="@+id/btnSp20" android:layout_width="0dp" android:layout_weight="1"
-                    android:layout_height="wrap_content" android:text="2.0" />
+        <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+            <LinearLayout android:orientation="vertical" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:padding="16dp">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="遥控器" android:textSize="20sp" android:textStyle="bold"
+                    android:gravity="center" />
+
+                <LinearLayout android:id="@+id/nowPlayingCard" android:orientation="vertical"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp" android:padding="12dp"
+                    android:background="@drawable/bg_status_card">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="推送状态" android:textStyle="bold" android:textSize="13sp"
+                        android:textColor="@color/hg_primary" />
+                    <TextView android:id="@+id/nowTitle" android:layout_width="match_parent"
+                        android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                        android:text="暂无推送" android:textSize="15sp" android:textStyle="bold"
+                        android:textColor="@color/hg_text" />
+                    <TextView android:id="@+id/nowMeta" android:layout_width="match_parent"
+                        android:layout_height="wrap_content" android:layout_marginTop="2dp"
+                        android:textSize="12sp" android:textColor="@color/hg_text_secondary"
+                        android:text="绑定电视后推送片源，此处显示正在播放信息" />
+                    <TextView android:id="@+id/remoteHint" android:layout_width="match_parent"
+                        android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                        android:textSize="12sp" android:textColor="@color/hg_text_secondary" />
+                </LinearLayout>
+
+                <FrameLayout android:layout_width="260dp" android:layout_height="260dp"
+                    android:layout_gravity="center_horizontal" android:layout_marginTop="18dp"
+                    android:background="@drawable/bg_remote">
+                    <Button android:id="@+id/btnPlay" android:layout_width="96dp" android:layout_height="96dp"
+                        android:layout_gravity="center" android:text="播放" />
+                    <Button android:id="@+id/btnPause" android:layout_width="80dp" android:layout_height="44dp"
+                        android:layout_gravity="center" android:layout_marginTop="72dp" android:text="暂停" />
+                    <Button android:id="@+id/btnPrev" android:layout_width="72dp" android:layout_height="48dp"
+                        android:layout_gravity="center_vertical|start" android:layout_marginStart="12dp"
+                        android:text="上集" />
+                    <Button android:id="@+id/btnNext" android:layout_width="72dp" android:layout_height="48dp"
+                        android:layout_gravity="center_vertical|end" android:layout_marginEnd="12dp"
+                        android:text="下集" />
+                </FrameLayout>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp" android:text="倍速" android:textStyle="bold" />
+                <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="6dp">
+                    <TextView android:id="@+id/btnSp075" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="0.75"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/btnSp10" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="1.0"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/btnSp125" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="1.25"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/btnSp15" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="1.5"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/btnSp20" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="2.0"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:clickable="true" android:focusable="true" />
+                </LinearLayout>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp" android:text="清晰度（推送偏好）" android:textStyle="bold" />
+                <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="6dp">
+                    <TextView android:id="@+id/chipQAuto" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="自动"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipQ360" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="360p"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipQ720" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="720p"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipQ1080" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="36dp" android:gravity="center" android:text="1080p"
+                        android:background="@drawable/bg_chip_normal" android:textColor="#333"
+                        android:clickable="true" android:focusable="true" />
+                </LinearLayout>
             </LinearLayout>
-        </LinearLayout>
+        </ScrollView>
 
     </ViewFlipper>
 

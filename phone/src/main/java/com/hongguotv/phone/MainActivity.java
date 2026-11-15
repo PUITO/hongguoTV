@@ -1,6 +1,7 @@
 package com.hongguotv.phone;
 
 import android.Manifest;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -55,6 +56,10 @@ public class MainActivity extends AppCompatActivity {
     private Spinner qualitySpinner;
     private boolean showHistory;
     private boolean searching;
+    private TextView nowTitle, nowMeta, tabRecommend, tabHistory;
+    private TextView[] speedChips;
+    private TextView[] qualityChips;
+    private float currentUiSpeed = 1.5f;
     private String pairCode = "0000";
     private boolean running;
     private final ExecutorService net = Executors.newCachedThreadPool();
@@ -64,6 +69,7 @@ public class MainActivity extends AppCompatActivity {
             refreshCacheStatus();
             refreshBindStatus();
             refreshStatus();
+            refreshNowPlaying();
             ui.postDelayed(this, 1500);
         }
     };
@@ -105,6 +111,29 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(di);
             } catch (Exception ignored) {}
         });
+        seriesList.setOnItemLongClickListener((parent, view, position, id) -> {
+            if (!showHistory) {
+                toast("长按删除仅在「历史」中可用");
+                return true;
+            }
+            try {
+                org.json.JSONObject o = (org.json.JSONObject) seriesAdapter.getItem(position);
+                if (o == null) return true;
+                String sid = o.optString("seriesId");
+                String title = o.optString("title", sid);
+                new AlertDialog.Builder(this)
+                        .setTitle("删除历史")
+                        .setMessage("删除「" + title + "」？")
+                        .setPositiveButton("删除", (d, w) -> {
+                            WatchHistory.remove(this, sid);
+                            loadSourceList(false);
+                            toast("已删除");
+                        })
+                        .setNegativeButton("取消", null)
+                        .show();
+            } catch (Exception ignored) {}
+            return true;
+        });
         String[] speeds = new String[]{"0.75","1.0","1.25","1.5","2.0"};
         ArrayAdapter<String> spAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, speeds);
         speedSpinner.setAdapter(spAdapter);
@@ -142,10 +171,46 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
         });
-        View tabRec = findViewById(R.id.tabRecommend);
-        View tabHist = findViewById(R.id.tabHistory);
-        if (tabRec != null) tabRec.setOnClickListener(v -> { showHistory = false; searching = false; loadSourceList(true); });
-        if (tabHist != null) tabHist.setOnClickListener(v -> { showHistory = true; searching = false; loadSourceList(false); });
+        tabRecommend = findViewById(R.id.tabRecommend);
+        tabHistory = findViewById(R.id.tabHistory);
+        if (tabRecommend != null) tabRecommend.setOnClickListener(v -> {
+            showHistory = false; searching = false; updateTabStyle(); loadSourceList(true);
+        });
+        if (tabHistory != null) tabHistory.setOnClickListener(v -> {
+            showHistory = true; searching = false; updateTabStyle(); loadSourceList(false);
+        });
+        nowTitle = findViewById(R.id.nowTitle);
+        nowMeta = findViewById(R.id.nowMeta);
+        speedChips = new TextView[]{
+                findViewById(R.id.btnSp075), findViewById(R.id.btnSp10), findViewById(R.id.btnSp125),
+                findViewById(R.id.btnSp15), findViewById(R.id.btnSp20)
+        };
+        float[] speedVals = new float[]{0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
+        for (int i = 0; i < speedChips.length; i++) {
+            final float sv = speedVals[i];
+            if (speedChips[i] != null) speedChips[i].setOnClickListener(v -> {
+                currentUiSpeed = sv;
+                speed(sv);
+                highlightSpeedChips();
+            });
+        }
+        qualityChips = new TextView[]{
+                findViewById(R.id.chipQAuto), findViewById(R.id.chipQ360),
+                findViewById(R.id.chipQ720), findViewById(R.id.chipQ1080)
+        };
+        String[] qVals = new String[]{"auto", "360p", "720p", "1080p"};
+        for (int i = 0; i < qualityChips.length; i++) {
+            final String qv = qVals[i];
+            if (qualityChips[i] != null) qualityChips[i].setOnClickListener(v -> {
+                applySetting(put("preferredQuality", qv));
+                highlightQualityChips();
+                toast("清晰度偏好 " + qv);
+            });
+        }
+        currentUiSpeed = DeviceSettings.INSTANCE.defaultSpeed;
+        updateTabStyle();
+        highlightSpeedChips();
+        highlightQualityChips();
         loadSourceList(false);
 
         pairCode = String.format(Locale.US, "%04d", new Random().nextInt(10000));
@@ -168,11 +233,6 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnPause).setOnClickListener(v -> control("pause"));
         findViewById(R.id.btnNext).setOnClickListener(v -> control("next"));
         findViewById(R.id.btnPrev).setOnClickListener(v -> control("prev"));
-        findViewById(R.id.btnSp075).setOnClickListener(v -> speed(0.75f));
-        findViewById(R.id.btnSp10).setOnClickListener(v -> speed(1.0f));
-        findViewById(R.id.btnSp125).setOnClickListener(v -> speed(1.25f));
-        findViewById(R.id.btnSp15).setOnClickListener(v -> speed(1.5f));
-        findViewById(R.id.btnSp20).setOnClickListener(v -> speed(2.0f));
 
         playModeGroup.setOnCheckedChangeListener((g, id) -> {
             String mode = (id == R.id.modeDirect) ? CastProtocol.MODE_DIRECT : CastProtocol.MODE_PROXY;
@@ -258,17 +318,19 @@ public class MainActivity extends AppCompatActivity {
                 String header;
                 if (history) {
                     show = WatchHistory.list(this);
-                    header = "观看历史";
-                    if (show.length() == 0) header = "暂无历史，先去推荐看看";
+                    header = show.length() == 0
+                            ? "历史为空 · 观看后会出现在这里 · 长按可删除"
+                            : ("历史 " + show.length() + " 部 · 长按删除");
                 } else {
                     show = HongguoClient.homeFeed();
-                    header = "热门推荐";
+                    header = "推荐 " + show.length() + " 部 · 点击进入详情";
                 }
                 JSONArray finalShow = show;
                 String finalHeader = header;
                 ui.post(() -> {
                     if (listHeader != null) listHeader.setText(finalHeader);
                     seriesAdapter.setData(finalShow);
+                    updateTabStyle();
                 });
             } catch (Exception e) {
                 ui.post(() -> toast("加载失败: " + e.getMessage()));
@@ -330,7 +392,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void speed(float s) {
         try {
+            currentUiSpeed = s;
             CastServerService.NOW.control("speed", new JSONObject().put("value", s));
+            highlightSpeedChips();
             toast("倍速 " + s);
         } catch (Exception ignored) {}
     }
@@ -494,6 +558,69 @@ public class MainActivity extends AppCompatActivity {
             ui.post(() -> toast("绑定失败: " + e.getMessage()
                     + "\n可改用电视端「手动连接」填手机 IP + 配对码"));
         }
+    }
+
+
+    private void updateTabStyle() {
+        if (tabRecommend != null) {
+            tabRecommend.setBackgroundResource(showHistory ? R.drawable.bg_tab_normal : R.drawable.bg_tab_selected);
+            tabRecommend.setTextColor(showHistory ? 0xFF666666 : 0xFFFFFFFF);
+        }
+        if (tabHistory != null) {
+            tabHistory.setBackgroundResource(showHistory ? R.drawable.bg_tab_selected : R.drawable.bg_tab_normal);
+            tabHistory.setTextColor(showHistory ? 0xFFFFFFFF : 0xFF666666);
+        }
+    }
+
+    private void highlightSpeedChips() {
+        float[] vals = new float[]{0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
+        float cur = CastServerService.NOW.speed;
+        if (Math.abs(cur) < 0.01f) cur = currentUiSpeed;
+        if (speedChips == null) return;
+        for (int i = 0; i < speedChips.length; i++) {
+            if (speedChips[i] == null) continue;
+            boolean on = Math.abs(vals[i] - cur) < 0.01f;
+            speedChips[i].setBackgroundResource(on ? R.drawable.bg_chip_selected : R.drawable.bg_chip_normal);
+            speedChips[i].setTextColor(on ? 0xFFFFFFFF : 0xFF333333);
+        }
+    }
+
+    private void highlightQualityChips() {
+        String[] vals = new String[]{"auto", "360p", "720p", "1080p"};
+        String cur = DeviceSettings.INSTANCE.preferredQuality;
+        if (qualityChips == null) return;
+        for (int i = 0; i < qualityChips.length; i++) {
+            if (qualityChips[i] == null) continue;
+            boolean on = vals[i].equals(cur);
+            qualityChips[i].setBackgroundResource(on ? R.drawable.bg_chip_selected : R.drawable.bg_chip_normal);
+            qualityChips[i].setTextColor(on ? 0xFFFFFFFF : 0xFF333333);
+        }
+    }
+
+    private void refreshNowPlaying() {
+        if (nowTitle == null) return;
+        String title = CastServerService.NOW.title;
+        String src = CastServerService.NOW.sourceUrl;
+        int idx = CastServerService.NOW.index;
+        int size = CastServerService.NOW.playlist.length();
+        DeviceSettings s = DeviceSettings.INSTANCE;
+        if (src == null || src.isEmpty()) {
+            nowTitle.setText("暂无推送");
+            nowMeta.setText("在「片源」选择剧集推送到电视后，这里显示播放信息");
+        } else {
+            nowTitle.setText(title == null || title.isEmpty() ? "播放中" : title);
+            String mode = s.isProxy() ? "推流" : "直链";
+            nowMeta.setText("进度 第" + (idx + 1) + (size > 0 ? ("/" + size) : "")
+                    + " 集 · " + CastServerService.NOW.speed + "x · " + mode
+                    + " · " + s.preferredQuality
+                    + (CastServerService.NOW.playing ? " · 播放中" : " · 已暂停"));
+        }
+        if (remoteHint != null) {
+            remoteHint.setText(s.bound
+                    ? ("已绑定 " + s.boundTvIp)
+                    : "未绑定电视 · 请先在「连接」扫码");
+        }
+        highlightSpeedChips();
     }
 
     private String localIp() {
