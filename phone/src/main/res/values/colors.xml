@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hg_primary">#E85D4C</color>
+    <color name="hg_primary_dark">#C62828</color>
+    <color name="hg_primary_light">#FF8A80</color>
+    <color name="hg_secondary">#1565C0</color>
+    <color name="hg_secondary_dark">#0D47A1</color>
+    <color name="hg_bg">#F5F7FA</color>
+    <color name="hg_surface">#FFFFFF</color>
+    <color name="hg_text">#1A1A1A</color>
+    <color name="hg_text_secondary">#666666</color>
+    <color name="hg_success">#2E7D32</color>
+    <color name="hg_warning">#F9A825</color>
+    <color name="hg_nav_selected">#1565C0</color>
+    <color name="hg_nav_unselected">#757575</color>
+    <color name="hg_topbar">#E85D4C</color>
+</resources>

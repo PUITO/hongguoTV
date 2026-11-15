@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tv_bg">#0F1419</color>
+    <color name="tv_surface">#1A2332</color>
+    <color name="tv_primary">#E85D4C</color>
+    <color name="tv_accent">#80CBC4</color>
+    <color name="tv_text">#FFFFFF</color>
+    <color name="tv_text_dim">#B0BEC5</color>
+    <color name="tv_warning">#FFCC80</color>
+    <color name="tv_hint">#90A4AE</color>
+    <color name="tv_focus">#E85D4C</color>
+</resources>

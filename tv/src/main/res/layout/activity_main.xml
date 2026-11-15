@@ -4,7 +4,7 @@
     android:padding="28dp"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0F1419">
+    android:background="@color/tv_bg">
 
     <!-- 左侧说明与手动连接 -->
     <LinearLayout
@@ -18,7 +18,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="红果电视"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tv_text"
             android:textSize="28sp"
             android:textStyle="bold" />
 
@@ -27,7 +27,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:textColor="#B0BEC5"
+            android:textColor="@color/tv_text_dim"
             android:textSize="16sp"
             android:text="用手机「红果推流」扫描右侧二维码完成绑定。\n绑定后由手机统一控制播放与设置。" />
 
@@ -36,7 +36,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:textColor="#80CBC4"
+            android:textColor="@color/tv_accent"
             android:textSize="18sp"
             android:textStyle="bold"
             android:text="本机 IP：检测中…" />
@@ -59,7 +59,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="扫码失败时：手动连接"
-            android:textColor="#FFCC80"
+            android:textColor="@color/tv_warning"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -68,7 +68,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="① 手机局域网 IP（在手机推流页顶部可见，例如 192.168.1.8）"
-            android:textColor="#90A4AE"
+            android:textColor="@color/tv_hint"
             android:textSize="14sp" />
         <EditText
             android:id="@+id/ipInput"
@@ -76,7 +76,7 @@
             android:layout_height="wrap_content"
             android:hint="输入手机 IP，不要填电视 IP"
             android:inputType="text"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tv_text"
             android:textColorHint="#66FFFFFF"
             android:nextFocusDown="@id/pairInput" />
 
@@ -85,7 +85,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="② 手机上的 4 位配对码（启动推流服务后显示）"
-            android:textColor="#90A4AE"
+            android:textColor="@color/tv_hint"
             android:textSize="14sp" />
         <EditText
             android:id="@+id/pairInput"
@@ -94,7 +94,7 @@
             android:hint="四位数字配对码"
             android:inputType="number"
             android:maxLength="4"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tv_text"
             android:textColorHint="#66FFFFFF"
             android:nextFocusDown="@id/btnConnect" />
 
@@ -110,7 +110,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:textColor="#FFECB3"
+            android:textColor="@color/tv_warning"
             android:textSize="16sp" />
     </LinearLayout>
 
@@ -125,22 +125,21 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="手机扫此码绑定"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/tv_text"
             android:textSize="18sp"
             android:layout_marginBottom="10dp" />
         <ImageView
             android:id="@+id/qrImage"
             android:layout_width="300dp"
             android:layout_height="300dp"
-            android:background="#FFFFFF"
-            android:padding="12dp"
+            android:background="@drawable/bg_qr_frame"
             android:contentDescription="绑定二维码" />
         <TextView
             android:id="@+id/sessionText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:textColor="#B0BEC5"
+            android:textColor="@color/tv_text_dim"
             android:textSize="14sp"
             android:gravity="center" />
     </LinearLayout>

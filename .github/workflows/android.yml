@@ -46,20 +46,24 @@ jobs:
       - name: Build phone + tv debug APKs
         run: |
           chmod +x gradlew
-          ./gradlew :phone:assembleDebug :tv:assembleDebug --stacktrace
+          ./gradlew :phone:assembleDebug :tv:assembleDebug :phone:assembleRelease :tv:assembleRelease --stacktrace
 
       - name: Upload phone APK
         uses: actions/upload-artifact@v4
         with:
-          name: phone-debug
-          path: phone/build/outputs/apk/debug/*.apk
+          name: phone-release
+          path: |
+            phone/build/outputs/apk/release/*.apk
+            phone/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Upload TV APK
         uses: actions/upload-artifact@v4
         with:
-          name: tv-debug
-          path: tv/build/outputs/apk/debug/*.apk
+          name: tv-release
+          path: |
+            tv/build/outputs/apk/release/*.apk
+            tv/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Create prerelease on main
@@ -70,6 +74,8 @@ jobs:
           name: Build #${{ github.run_number }}
           prerelease: true
           files: |
+            phone/build/outputs/apk/release/*.apk
+            tv/build/outputs/apk/release/*.apk
             phone/build/outputs/apk/debug/*.apk
             tv/build/outputs/apk/debug/*.apk
         env:

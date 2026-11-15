@@ -3,14 +3,14 @@
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F5F7FA">
+    android:background="@color/hg_bg">
 
     <TextView
         android:id="@+id/topBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="14dp"
-        android:background="#1565C0"
+        android:background="@drawable/bg_topbar"
         android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:textStyle="bold"
@@ -33,14 +33,14 @@
                     android:textSize="14sp" />
                 <TextView android:id="@+id/bindStatus" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="6dp"
-                    android:textSize="15sp" android:textStyle="bold" android:textColor="#1565C0"
+                    android:textSize="15sp" android:textStyle="bold" android:textColor="@color/hg_secondary"
                     android:text="未绑定电视" />
                 <TextView android:id="@+id/pairCode" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="12dp"
                     android:textSize="28sp" android:textStyle="bold" android:gravity="center"
                     android:text="配对码 ----" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:gravity="center" android:textSize="13sp" android:textColor="#666666"
+                    android:gravity="center" android:textSize="13sp" android:textColor="@color/hg_text_secondary"
                     android:text="电视端手动连接时需要填写上方配对码" />
                 <Button android:id="@+id/btnStart" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="16dp"
@@ -50,7 +50,7 @@
                 <Button android:id="@+id/btnStop" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:text="停止服务" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp" android:textSize="13sp" android:textColor="#666"
+                    android:layout_marginTop="16dp" android:textSize="13sp" android:textColor="@color/hg_text_secondary"
                     android:text="说明：只需扫描电视上的二维码。手机不再显示二维码。\n请保证手机与电视在同一 Wi‑Fi。" />
             </LinearLayout>
         </ScrollView>
@@ -81,7 +81,7 @@
                         android:layout_height="wrap_content" android:text="解析推送" />
                 </LinearLayout>
                 <View android:layout_width="match_parent" android:layout_height="1dp"
-                    android:layout_marginVertical="12dp" android:background="#DDDDDD" />
+                    android:layout_marginVertical="12dp" android:background="@color/hg_text_secondary" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:text="手动填写播放地址" android:textStyle="bold" />
                 <EditText android:id="@+id/urlInput" android:layout_width="match_parent"
@@ -93,7 +93,7 @@
                     android:layout_height="wrap_content" android:text="推送到电视" />
                 <TextView android:id="@+id/cacheStatus" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="8dp"
-                    android:textSize="12sp" android:textColor="#666" />
+                    android:textSize="12sp" android:textColor="@color/hg_text_secondary" />
             </LinearLayout>
         </ScrollView>
 
@@ -185,7 +185,7 @@
 
     <!-- 底部导航 -->
     <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
-        android:layout_height="wrap_content" android:background="#FFFFFF"
+        android:layout_height="wrap_content" android:background="@drawable/bg_nav"
         android:elevation="8dp" android:paddingTop="4dp" android:paddingBottom="4dp">
         <Button android:id="@+id/navHome" android:layout_width="0dp" android:layout_weight="1"
             android:layout_height="wrap_content" android:text="连接" style="?android:attr/borderlessButtonStyle" />

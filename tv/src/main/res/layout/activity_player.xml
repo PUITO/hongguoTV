@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="@android:color/black">
     <VideoView
         android:id="@+id/video"
         android:layout_width="match_parent"
@@ -14,12 +14,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#AA000000"
+        android:background="#CC0F1419"
         android:padding="12dp">
         <TextView android:id="@+id/title" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:textColor="#FFFFFF" android:textSize="18sp" />
+            android:layout_height="wrap_content" android:textColor="@color/tv_text" android:textSize="18sp" />
         <TextView android:id="@+id/meta" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:textColor="#CCFFFFFF" android:textSize="14sp" />
+            android:layout_height="wrap_content" android:textColor="@color/tv_text_dim" android:textSize="14sp" />
         <LinearLayout android:orientation="horizontal" android:layout_width="match_parent"
             android:layout_height="wrap_content">
             <Button android:id="@+id/btnPrev" android:layout_width="0dp" android:layout_weight="1"
