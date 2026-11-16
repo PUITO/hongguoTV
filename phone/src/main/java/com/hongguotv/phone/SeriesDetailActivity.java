@@ -124,6 +124,8 @@ public class SeriesDetailActivity extends Activity {
                 if (url.isEmpty()) throw new IllegalStateException("取流失败 "
                         + com.hongguotv.phone.core.AppPlayback.lastError());
                 String title = detail.optString("title") + " 第" + (idx + 1) + "集";
+                WatchHistory.updateProgress(SeriesDetailActivity.this, seriesId, idx,
+                        detail.optString("title"), detail.optString("cover"));
                 // write back resolved url
                 ep.put("url", url);
                 ep.put("locked", false);

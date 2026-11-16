@@ -32,6 +32,7 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private boolean playerOpened;
     private TextView message, sessionText, ipInfo, hint;
     private ImageView qrImage;
     private String session;
@@ -39,9 +40,13 @@ public class MainActivity extends Activity {
     private TvBindServer bindServer;
     private final Runnable pollBound = new Runnable() {
         @Override public void run() {
-            if (TvBindState.INSTANCE.bound) {
-                message.setText("已绑定手机 " + TvBindState.INSTANCE.phoneIp + "，正在进入播放…");
+            if (TvBindState.INSTANCE.bound && !playerOpened) {
+                message.setText("已绑定手机 " + TvBindState.INSTANCE.phoneIp + "，进入播放…");
                 openPlayer(TvBindState.INSTANCE.phoneIp, TvBindState.INSTANCE.phonePort, TvBindState.INSTANCE.pair);
+                return;
+            }
+            if (TvBindState.INSTANCE.bound) {
+                message.setText("已绑定 " + TvBindState.INSTANCE.phoneIp + " · 等待推送（点确认或返回桌面）");
                 return;
             }
             ui.postDelayed(this, 1000);
@@ -53,8 +58,16 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         TvBindState.INSTANCE.load(this);
         if (TvBindState.INSTANCE.bound) {
-            // 已绑定则直接进播放器，避免每次都要扫码
-            ui.post(() -> openPlayer(TvBindState.INSTANCE.phoneIp, TvBindState.INSTANCE.phonePort, TvBindState.INSTANCE.pair));
+            message = findViewById(R.id.message);
+            if (message != null) {
+                message.setText("已绑定 " + TvBindState.INSTANCE.phoneIp + " · 等待手机推送\n按确认键进入播放页");
+            }
+            // 自动进播放页一次；用户退出后停在本页，需手动再进
+            ui.postDelayed(() -> {
+                if (!playerOpened) {
+                    openPlayer(TvBindState.INSTANCE.phoneIp, TvBindState.INSTANCE.phonePort, TvBindState.INSTANCE.pair);
+                }
+            }, 400);
         }
         message = findViewById(R.id.message);
         sessionText = findViewById(R.id.sessionText);
@@ -124,14 +137,15 @@ public class MainActivity extends Activity {
             message.setText("手机 IP 为空");
             return;
         }
-        message.setText("连接手机 " + ip + " …");
+        playerOpened = true;
+        if (message != null) message.setText("连接手机 " + ip + " …");
         net.execute(() -> {
             String play = "";
             String title = "等待推送";
             try {
                 String nowUrl = "http://" + ip + ":" + port + CastProtocol.PATH_NOW;
                 JSONObject now = httpGet(nowUrl, pair);
-                play = now.optString("playUrl", now.optString("sourceUrl", ""));
+                play = now.optString("url", now.optString("playUrl", ""));
                 title = now.optString("title", "等待推送");
             } catch (Exception e) {
                 // 无当前片源也进播放器，等手机推送
@@ -179,6 +193,26 @@ public class MainActivity extends Activity {
 
     private static String text(EditText e) {
         return e.getText() == null ? "" : e.getText().toString().trim();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (TvBindState.INSTANCE.bound) {
+            playerOpened = false;
+            if (message != null) {
+                message.setText("已绑定 " + TvBindState.INSTANCE.phoneIp + " · 等待推送\n按确认键进入播放");
+            }
+        }
+    }
+
+    @Override public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        if ((keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == android.view.KeyEvent.KEYCODE_ENTER)
+                && TvBindState.INSTANCE.bound && !playerOpened) {
+            openPlayer(TvBindState.INSTANCE.phoneIp, TvBindState.INSTANCE.phonePort, TvBindState.INSTANCE.pair);
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
     }
 
     @Override protected void onDestroy() {

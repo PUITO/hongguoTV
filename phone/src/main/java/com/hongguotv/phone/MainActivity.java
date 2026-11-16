@@ -192,6 +192,8 @@ public class MainActivity extends AppCompatActivity {
             final float sv = speedVals[i];
             if (speedChips[i] != null) speedChips[i].setOnClickListener(v -> {
                 currentUiSpeed = sv;
+                // 与设置页同步，并实时推给 TV / 本机 NOW
+                applySetting(put("defaultSpeed", sv));
                 speed(sv);
                 highlightSpeedChips();
             });
@@ -200,13 +202,14 @@ public class MainActivity extends AppCompatActivity {
                 findViewById(R.id.chipQAuto), findViewById(R.id.chipQ360),
                 findViewById(R.id.chipQ720), findViewById(R.id.chipQ1080)
         };
-        String[] qVals = new String[]{"auto", "360p", "480p", "720p", "1080p"};
+        // 必须与 qualityChips 一一对应（之前 720 芯片写成了 480p）
+        String[] qVals = new String[]{"auto", "360p", "720p", "1080p"};
         for (int i = 0; i < qualityChips.length; i++) {
             final String qv = qVals[i];
             if (qualityChips[i] != null) qualityChips[i].setOnClickListener(v -> {
                 applySetting(put("preferredQuality", qv));
                 highlightQualityChips();
-                toast("清晰度偏好 " + qv);
+                toast("清晰度偏好 " + qv + "（下次取流/预缓存生效）");
             });
         }
         currentUiSpeed = DeviceSettings.INSTANCE.defaultSpeed;
@@ -215,9 +218,19 @@ public class MainActivity extends AppCompatActivity {
         highlightQualityChips();
         loadSourceList(false);
 
-        pairCode = String.format(Locale.US, "%04d", new Random().nextInt(10000));
+        SettingsStore.load(this);
+        String savedPair = SettingsStore.loadPair(this, "");
+        if (savedPair != null && savedPair.length() == 4) {
+            pairCode = savedPair;
+        } else {
+            pairCode = String.format(Locale.US, "%04d", new Random().nextInt(10000));
+            SettingsStore.savePair(this, pairCode);
+        }
         pairCodeView.setText("配对码 " + pairCode);
+        currentUiSpeed = DeviceSettings.INSTANCE.defaultSpeed;
         syncUiFromSettings();
+        highlightSpeedChips();
+        highlightQualityChips();
         showPage(0);
 
         findViewById(R.id.navHome).setOnClickListener(v -> showPage(0));
@@ -235,6 +248,7 @@ public class MainActivity extends AppCompatActivity {
         AppLog.i("MainActivity 启动");
         com.hongguotv.phone.core.AppPlayback.init(this);
         com.hongguotv.phone.core.PlaintextCache.init(getCacheDir());
+        refreshCacheStats();
 
         findViewById(R.id.btnStart).setOnClickListener(v -> startServer());
         findViewById(R.id.btnStop).setOnClickListener(v -> stopServer());
@@ -266,6 +280,12 @@ public class MainActivity extends AppCompatActivity {
         topBar.setText("红果推流 · " + titles[index]);
         highlightNav(index);
         if (index == 1 && !searching) loadSourceList(false);
+        if (index == 2 || index == 3) {
+            currentUiSpeed = DeviceSettings.INSTANCE.defaultSpeed;
+            highlightSpeedChips();
+            highlightQualityChips();
+            refreshCacheStats();
+        }
     }
 
     private void highlightNav(int index) {
@@ -287,6 +307,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void applySetting(JSONObject o) {
         DeviceSettings.INSTANCE.applyJson(o);
+        SettingsStore.save(this);
         CastServerService.NOW.commandId++;
         if (o.has("playMode") && CastServerService.CACHE != null && DeviceSettings.INSTANCE.isProxy()) {
             String u = CastServerService.NOW.sourceUrl;
@@ -406,6 +427,8 @@ public class MainActivity extends AppCompatActivity {
     private void speed(float s) {
         try {
             currentUiSpeed = s;
+            DeviceSettings.INSTANCE.defaultSpeed = s;
+            SettingsStore.save(this);
             CastServerService.NOW.control("speed", new JSONObject().put("value", s));
             highlightSpeedChips();
             toast("倍速 " + s);
@@ -556,6 +579,7 @@ public class MainActivity extends AppCompatActivity {
             int code = c.getResponseCode();
             if (code >= 200 && code < 300) {
                 DeviceSettings.INSTANCE.setBound(tvIp, bindPort, session);
+                SettingsStore.save(this);
             }
             final int finalCode = code;
             ui.post(() -> {
@@ -587,8 +611,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void highlightSpeedChips() {
         float[] vals = new float[]{0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
-        float cur = CastServerService.NOW.speed;
+        float cur = DeviceSettings.INSTANCE.defaultSpeed;
         if (Math.abs(cur) < 0.01f) cur = currentUiSpeed;
+        currentUiSpeed = cur;
         if (speedChips == null) return;
         for (int i = 0; i < speedChips.length; i++) {
             if (speedChips[i] == null) continue;
@@ -599,7 +624,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void highlightQualityChips() {
-        String[] vals = new String[]{"auto", "360p", "480p", "720p", "1080p"};
+        String[] vals = new String[]{"auto", "360p", "720p", "1080p"};
         String cur = DeviceSettings.INSTANCE.preferredQuality;
         if (qualityChips == null) return;
         for (int i = 0; i < qualityChips.length; i++) {
@@ -705,22 +730,26 @@ public class MainActivity extends AppCompatActivity {
 
     private void persistSettings() {
         try {
-            // settings already on INSTANCE; bump revision for TV
             DeviceSettings.INSTANCE.revision++;
+            SettingsStore.save(this);
         } catch (Exception ignored) {}
     }
 
     private void refreshCacheStats() {
-        TextView stats = findViewById(R.id.cacheStats);
+        final TextView stats = findViewById(R.id.cacheStats);
         if (stats == null) return;
         try {
             com.hongguotv.phone.core.PlaintextCache.Stats s = com.hongguotv.phone.core.PlaintextCache.stats();
-            stats.setText(String.format(java.util.Locale.US,
+            int files = s.getFiles();
+            double mb = s.mb();
+            String text = String.format(java.util.Locale.US,
                     "当前缓存：%d 个文件 · %.1f MB（上限 %d MB / 预取 %d 集）",
-                    s.getFiles(), s.mb(), DeviceSettings.INSTANCE.cacheMaxMb,
-                    DeviceSettings.INSTANCE.prefetchEpisodes));
-        } catch (Exception e) {
-            stats.setText("缓存统计不可用");
+                    files, mb, DeviceSettings.INSTANCE.cacheMaxMb,
+                    DeviceSettings.INSTANCE.prefetchEpisodes);
+            stats.setText(text);
+        } catch (Throwable e) {
+            stats.setText("当前缓存：0 个文件 · 0.0 MB（初始化后刷新）");
+            AppLog.w("refreshCacheStats: " + e.getMessage());
         }
     }
 

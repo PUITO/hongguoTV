@@ -48,6 +48,7 @@ public class PlayerActivity extends Activity {
     private long lastSettingsRev = -1;
     private String currentUrl = "";
     private float currentSpeed = 1.5f;
+    private long lastBackMs = 0;
     private boolean allowLocalControl = true;
     private boolean showOverlayPref = true;
     private int overlayHideMs = 5000;
@@ -116,8 +117,14 @@ public class PlayerActivity extends Activity {
             try {
                 int vw = mp.getVideoWidth();
                 int vh = mp.getVideoHeight();
+                int dur = mp.getDuration();
                 if (vw > 0 && vh > 0) fitVideoView(vw, vh);
                 mp.setVideoScalingMode(android.media.MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+                if (dur <= 0) {
+                    meta.setText("时长未知/0 · 可在手机重推或换 1080p");
+                } else {
+                    meta.setText(String.format(java.util.Locale.US, "时长 %d 秒 · %dx%d", dur / 1000, vw, vh));
+                }
             } catch (Exception ignored) {}
             applySpeed(currentSpeed);
             video.start();
@@ -191,10 +198,22 @@ public class PlayerActivity extends Activity {
     }
 
     private void playUrl(String url) {
+        if (url == null || url.isEmpty()) return;
         currentUrl = url;
-        video.setVideoURI(Uri.parse(url));
-        video.start();
-        showOverlay();
+        try {
+            video.stopPlayback();
+        } catch (Exception ignored) {}
+        try {
+            video.setVideoURI(Uri.parse(url));
+            video.requestFocus();
+            // start 在 onPrepared；若部分机顶盒需主动 start
+            video.start();
+            showOverlay();
+            meta.setText((meta.getText() == null ? "" : meta.getText()) + "
+加载 " + url);
+        } catch (Exception e) {
+            Toast.makeText(this, "打开流失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void applySpeed(float speed) {
@@ -245,6 +264,21 @@ public class PlayerActivity extends Activity {
     }
 
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            long now = System.currentTimeMillis();
+            if (now - lastBackMs < 2000) {
+                // 二次返回：退出播放并结束到桌面，避免反复进绑定页
+                try {
+                    finishAffinity();
+                } catch (Exception e) {
+                    finish();
+                }
+                return true;
+            }
+            lastBackMs = now;
+            Toast.makeText(this, "再按一次返回退出", Toast.LENGTH_SHORT).show();
+            return true;
+        }
         if (!allowLocalControl) return super.onKeyDown(keyCode, event);
         showOverlay();
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
@@ -292,6 +326,16 @@ public class PlayerActivity extends Activity {
         }
         lp.gravity = Gravity.CENTER;
         video.setLayoutParams(lp);
+    }
+
+    @Override public void onBackPressed() {
+        long now = System.currentTimeMillis();
+        if (now - lastBackMs < 2000) {
+            try { finishAffinity(); } catch (Exception e) { finish(); }
+            return;
+        }
+        lastBackMs = now;
+        Toast.makeText(this, "再按一次返回退出", Toast.LENGTH_SHORT).show();
     }
 
     @Override protected void onDestroy() {
