@@ -209,8 +209,7 @@ public class PlayerActivity extends Activity {
             // start 在 onPrepared；若部分机顶盒需主动 start
             video.start();
             showOverlay();
-            meta.setText((meta.getText() == null ? "" : meta.getText()) + "
-加载 " + url);
+            meta.setText("加载中…");
         } catch (Exception e) {
             Toast.makeText(this, "打开流失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
