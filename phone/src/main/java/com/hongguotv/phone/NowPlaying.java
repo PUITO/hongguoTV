@@ -20,14 +20,18 @@ public final class NowPlaying {
     public String playUrlForTv(String phoneIp, int port) {
         if (sourceUrl == null || sourceUrl.isEmpty()) return "";
         // 明文文件 / 任意源：TV 一律走手机代理，TV 不直连红果 CDN
+        // 必须带 index/updatedAt，否则联播时 URL 不变，TV 不会重新加载下一集
+        String tag = "?i=" + index + "&t=" + updatedAt;
         if (sourceUrl.startsWith("file://") || sourceUrl.startsWith("/")
                 || DeviceSettings.INSTANCE.isProxy()
                 || sourceUrl.contains("qznovelvod")
                 || sourceUrl.contains("byteimg")
                 || sourceUrl.contains("tos-cn")) {
-            return "http://" + phoneIp + ":" + port + CastProtocol.PATH_STREAM_CURRENT;
+            return "http://" + phoneIp + ":" + port + CastProtocol.PATH_STREAM_CURRENT + tag;
         }
-        return sourceUrl;
+        // 直链模式也加 cache-buster，避免同路径不重载
+        if (sourceUrl.contains("?")) return sourceUrl + "&_hg=" + index + "_" + updatedAt;
+        return sourceUrl + "?_hg=" + index + "_" + updatedAt;
     }
 
     public synchronized void set(String url, String title) {
@@ -90,6 +94,13 @@ public final class NowPlaying {
         } else if ("seek".equals(action)) {
             seekMs = body.optLong("positionMs", 0);
         } else if ("next".equals(action)) {
+            // 播完触发的 next：受 autoNext 开关控制；遥控手动 next 始终切集
+            if (body != null && body.optBoolean("fromComplete", false)
+                    && !DeviceSettings.INSTANCE.autoNext) {
+                playing = false;
+                bump();
+                return;
+            }
             next();
             return;
         } else if ("prev".equals(action)) {

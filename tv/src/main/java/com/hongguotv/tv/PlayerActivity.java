@@ -54,6 +54,8 @@ public class PlayerActivity extends Activity {
     private long lastCommandId = -1;
     private long lastSettingsRev = -1;
     private String currentUrl = "";
+    private long lastUpdatedAt = -1;
+    private int lastIndex = -1;
     private float currentSpeed = 1.5f;
     private long lastBackMs = 0;
     private boolean allowLocalControl = true;
@@ -286,7 +288,13 @@ public class PlayerActivity extends Activity {
                     CastProtocol.MODE_DIRECT.equals(mode) ? "直链" : "推流"));
         }
 
-        if (url != null && !url.isEmpty() && !url.equals(currentUrl)) {
+        long updated = st.optLong("updatedAt", 0);
+        // 联播关键：代理路径常为 /stream/current，靠 index/updatedAt/完整 url 判断换集
+        boolean urlChanged = url != null && !url.isEmpty() && !url.equals(currentUrl);
+        boolean episodeChanged = (updated > 0 && updated != lastUpdatedAt) || (index != lastIndex);
+        if (url != null && !url.isEmpty() && (urlChanged || episodeChanged)) {
+            lastUpdatedAt = updated;
+            lastIndex = index;
             playUrl(url);
         }
 
@@ -299,8 +307,16 @@ public class PlayerActivity extends Activity {
 
         if (cmd != lastCommandId) {
             lastCommandId = cmd;
-            if (seekMs >= 0) {
+            // 新命令且 index 已变但 URL 因某种原因没触发：再强制一次
+            if (index != lastIndex && url != null && !url.isEmpty()) {
+                lastIndex = index;
+                lastUpdatedAt = updated;
+                playUrl(url);
+            } else if (seekMs >= 0 && seekMs != 0) {
                 try { video.seekTo((int) seekMs); } catch (Exception ignored) {}
+            } else if (seekMs == 0 && prepared && video != null) {
+                // 新一集 applyIndex 会把 seekMs 置 0，从头播
+                try { video.seekTo(0); } catch (Exception ignored) {}
             }
             try {
                 if (playing) {
@@ -311,7 +327,6 @@ public class PlayerActivity extends Activity {
                     if (btnPlayPause != null) btnPlayPause.setText("播放");
                 }
             } catch (Exception ignored) {}
-            // 命令变化时再强制设一次倍速
             applySpeed(currentSpeed);
         }
     }
