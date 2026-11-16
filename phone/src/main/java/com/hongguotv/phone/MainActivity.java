@@ -284,8 +284,7 @@ public class MainActivity extends AppCompatActivity {
             currentUiSpeed = DeviceSettings.INSTANCE.defaultSpeed;
             highlightSpeedChips();
             highlightQualityChips();
-            highlightPrefetchChips();
-            highlightCacheMbChips();
+            fillCacheInputs();
             refreshCacheStats();
         }
     }
@@ -678,45 +677,61 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupCacheControls() {
         try {
-            int[] prefIds = {R.id.chipPrefetch0, R.id.chipPrefetch1, R.id.chipPrefetch2, R.id.chipPrefetch3};
-            int curPref = Math.max(0, Math.min(3, DeviceSettings.INSTANCE.prefetchEpisodes));
-            for (int i = 0; i < prefIds.length; i++) {
-                final int n = i;
-                TextView chip = findViewById(prefIds[i]);
-                if (chip == null) continue;
-                chip.setOnClickListener(v -> {
+            EditText inputPrefetch = findViewById(R.id.inputPrefetch);
+            EditText inputCacheMb = findViewById(R.id.inputCacheMb);
+            Button btnPrefetch = findViewById(R.id.btnApplyPrefetch);
+            Button btnCacheMb = findViewById(R.id.btnApplyCacheMb);
+            if (inputPrefetch != null) {
+                inputPrefetch.setText(String.valueOf(DeviceSettings.INSTANCE.prefetchEpisodes));
+            }
+            if (inputCacheMb != null) {
+                inputCacheMb.setText(String.valueOf(DeviceSettings.INSTANCE.cacheMaxMb));
+            }
+            if (btnPrefetch != null) {
+                btnPrefetch.setOnClickListener(v -> {
+                    int n = 2;
+                    try {
+                        String s = inputPrefetch != null ? inputPrefetch.getText().toString().trim() : "2";
+                        n = Integer.parseInt(s);
+                    } catch (Exception e) {
+                        toast("请输入 0–5 的整数");
+                        return;
+                    }
+                    if (n < 0) n = 0;
+                    if (n > 5) n = 5;
                     DeviceSettings.INSTANCE.prefetchEpisodes = n;
                     try {
                         DeviceSettings.INSTANCE.applyJson(new JSONObject().put("prefetchEpisodes", n));
                     } catch (Exception ignored) {}
                     persistSettings();
-                    highlightPrefetchChips();
+                    if (inputPrefetch != null) inputPrefetch.setText(String.valueOf(n));
                     refreshCacheStats();
-                    toast(n == 0 ? "已关闭预缓存" : ("预缓存 " + n + " 集"));
+                    toast("预缓存已设为 " + n + " 集");
                 });
             }
-            highlightPrefetchChips();
-
-            int[] mbIds = {R.id.chipMb128, R.id.chipMb256, R.id.chipMb512, R.id.chipMb1024, R.id.chipMb2048};
-            int[] mbVals = {128, 256, 512, 1024, 2048};
-            for (int i = 0; i < mbIds.length; i++) {
-                final int mb = mbVals[i];
-                TextView chip = findViewById(mbIds[i]);
-                if (chip == null) continue;
-                chip.setOnClickListener(v -> {
+            if (btnCacheMb != null) {
+                btnCacheMb.setOnClickListener(v -> {
+                    int mb = 512;
+                    try {
+                        String s = inputCacheMb != null ? inputCacheMb.getText().toString().trim() : "512";
+                        mb = Integer.parseInt(s);
+                    } catch (Exception e) {
+                        toast("请输入数字，单位 MB");
+                        return;
+                    }
+                    if (mb < 64) mb = 64;
+                    if (mb > 4096) mb = 4096;
                     DeviceSettings.INSTANCE.cacheMaxMb = mb;
                     try {
                         DeviceSettings.INSTANCE.applyJson(new JSONObject().put("cacheMaxMb", mb));
                     } catch (Exception ignored) {}
                     persistSettings();
                     try { com.hongguotv.phone.core.PlaintextCache.enforceLimits(); } catch (Exception ignored) {}
-                    highlightCacheMbChips();
+                    if (inputCacheMb != null) inputCacheMb.setText(String.valueOf(mb));
                     refreshCacheStats();
-                    toast("缓存上限 " + mb + " MB");
+                    toast("缓存上限已设为 " + mb + " MB");
                 });
             }
-            highlightCacheMbChips();
-
             Button clear = findViewById(R.id.btnClearCache);
             if (clear != null) {
                 clear.setOnClickListener(v -> {
@@ -728,30 +743,6 @@ public class MainActivity extends AppCompatActivity {
             refreshCacheStats();
         } catch (Exception e) {
             AppLog.w("setupCacheControls: " + e.getMessage());
-        }
-    }
-
-    private void highlightPrefetchChips() {
-        int[] ids = {R.id.chipPrefetch0, R.id.chipPrefetch1, R.id.chipPrefetch2, R.id.chipPrefetch3};
-        int cur = Math.max(0, Math.min(3, DeviceSettings.INSTANCE.prefetchEpisodes));
-        for (int i = 0; i < ids.length; i++) {
-            TextView c = findViewById(ids[i]);
-            if (c == null) continue;
-            c.setBackgroundResource(i == cur ? R.drawable.bg_chip_selected : R.drawable.bg_chip_normal);
-            c.setTextColor(i == cur ? 0xFFFFFFFF : 0xFF333333);
-        }
-    }
-
-    private void highlightCacheMbChips() {
-        int[] ids = {R.id.chipMb128, R.id.chipMb256, R.id.chipMb512, R.id.chipMb1024, R.id.chipMb2048};
-        int[] vals = {128, 256, 512, 1024, 2048};
-        int want = DeviceSettings.INSTANCE.cacheMaxMb;
-        for (int i = 0; i < ids.length; i++) {
-            TextView c = findViewById(ids[i]);
-            if (c == null) continue;
-            boolean on = vals[i] == want;
-            c.setBackgroundResource(on ? R.drawable.bg_chip_selected : R.drawable.bg_chip_normal);
-            c.setTextColor(on ? 0xFFFFFFFF : 0xFF333333);
         }
     }
 
