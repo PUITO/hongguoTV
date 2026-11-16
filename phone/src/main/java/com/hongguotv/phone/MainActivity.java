@@ -753,6 +753,19 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
     }
 
+    private void fillCacheInputs() {
+        try {
+            EditText inputPrefetch = findViewById(R.id.inputPrefetch);
+            EditText inputCacheMb = findViewById(R.id.inputCacheMb);
+            if (inputPrefetch != null) {
+                inputPrefetch.setText(String.valueOf(DeviceSettings.INSTANCE.prefetchEpisodes));
+            }
+            if (inputCacheMb != null) {
+                inputCacheMb.setText(String.valueOf(DeviceSettings.INSTANCE.cacheMaxMb));
+            }
+        } catch (Exception ignored) {}
+    }
+
     private void refreshCacheStats() {
         final TextView stats = findViewById(R.id.cacheStats);
         if (stats == null) return;
