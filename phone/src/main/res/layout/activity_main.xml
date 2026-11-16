@@ -150,12 +150,52 @@
                     android:text="缓存：计算中…" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="8dp" android:text="预缓存集数（连播/推TV）" />
-                <Spinner android:id="@+id/prefetchSpinner" android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
+                <LinearLayout android:id="@+id/prefetchChips"
+                    android:orientation="horizontal" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="6dp">
+                    <TextView android:id="@+id/chipPrefetch0" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="关"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:layout_marginEnd="6dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipPrefetch1" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="1集"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:layout_marginEnd="6dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipPrefetch2" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="2集"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:layout_marginEnd="6dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipPrefetch3" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="3集"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:clickable="true" android:focusable="true" />
+                </LinearLayout>
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp" android:text="缓存上限（MB）" />
-                <Spinner android:id="@+id/cacheMbSpinner" android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
+                    android:layout_marginTop="12dp" android:text="缓存上限（MB）" />
+                <LinearLayout android:id="@+id/cacheMbChips"
+                    android:orientation="horizontal" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:layout_marginTop="6dp">
+                    <TextView android:id="@+id/chipMb128" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="128"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipMb256" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="256"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipMb512" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="512"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipMb1024" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="1G"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:layout_marginEnd="4dp" android:clickable="true" android:focusable="true" />
+                    <TextView android:id="@+id/chipMb2048" android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="40dp" android:gravity="center" android:text="2G"
+                        android:background="@drawable/bg_chip_normal" android:textColor="@color/hg_text"
+                        android:clickable="true" android:focusable="true" />
+                </LinearLayout>
                 <Button android:id="@+id/btnClearCache" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:layout_marginTop="8dp"
                     android:text="清理明文缓存" />

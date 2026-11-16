@@ -284,6 +284,8 @@ public class MainActivity extends AppCompatActivity {
             currentUiSpeed = DeviceSettings.INSTANCE.defaultSpeed;
             highlightSpeedChips();
             highlightQualityChips();
+            highlightPrefetchChips();
+            highlightCacheMbChips();
             refreshCacheStats();
         }
     }
@@ -676,45 +678,46 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupCacheControls() {
         try {
-            Spinner prefetch = findViewById(R.id.prefetchSpinner);
-            Spinner cacheMb = findViewById(R.id.cacheMbSpinner);
-            TextView stats = findViewById(R.id.cacheStats);
+            int[] prefIds = {R.id.chipPrefetch0, R.id.chipPrefetch1, R.id.chipPrefetch2, R.id.chipPrefetch3};
+            int curPref = Math.max(0, Math.min(3, DeviceSettings.INSTANCE.prefetchEpisodes));
+            for (int i = 0; i < prefIds.length; i++) {
+                final int n = i;
+                TextView chip = findViewById(prefIds[i]);
+                if (chip == null) continue;
+                chip.setOnClickListener(v -> {
+                    DeviceSettings.INSTANCE.prefetchEpisodes = n;
+                    try {
+                        DeviceSettings.INSTANCE.applyJson(new JSONObject().put("prefetchEpisodes", n));
+                    } catch (Exception ignored) {}
+                    persistSettings();
+                    highlightPrefetchChips();
+                    refreshCacheStats();
+                    toast(n == 0 ? "已关闭预缓存" : ("预缓存 " + n + " 集"));
+                });
+            }
+            highlightPrefetchChips();
+
+            int[] mbIds = {R.id.chipMb128, R.id.chipMb256, R.id.chipMb512, R.id.chipMb1024, R.id.chipMb2048};
+            int[] mbVals = {128, 256, 512, 1024, 2048};
+            for (int i = 0; i < mbIds.length; i++) {
+                final int mb = mbVals[i];
+                TextView chip = findViewById(mbIds[i]);
+                if (chip == null) continue;
+                chip.setOnClickListener(v -> {
+                    DeviceSettings.INSTANCE.cacheMaxMb = mb;
+                    try {
+                        DeviceSettings.INSTANCE.applyJson(new JSONObject().put("cacheMaxMb", mb));
+                    } catch (Exception ignored) {}
+                    persistSettings();
+                    try { com.hongguotv.phone.core.PlaintextCache.enforceLimits(); } catch (Exception ignored) {}
+                    highlightCacheMbChips();
+                    refreshCacheStats();
+                    toast("缓存上限 " + mb + " MB");
+                });
+            }
+            highlightCacheMbChips();
+
             Button clear = findViewById(R.id.btnClearCache);
-            if (prefetch != null) {
-                String[] opts = new String[]{"0（关闭）", "1 集", "2 集", "3 集"};
-                ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, opts);
-                prefetch.setAdapter(a);
-                int cur = Math.max(0, Math.min(3, DeviceSettings.INSTANCE.prefetchEpisodes));
-                prefetch.setSelection(cur);
-                prefetch.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                    @Override public void onItemSelected(android.widget.AdapterView<?> parent, View v, int pos, long id) {
-                        DeviceSettings.INSTANCE.prefetchEpisodes = pos;
-                        try { DeviceSettings.INSTANCE.applyJson(new org.json.JSONObject().put("prefetchEpisodes", pos)); } catch (Exception ignored) {}
-                        persistSettings();
-                    }
-                    @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-                });
-            }
-            if (cacheMb != null) {
-                String[] mbs = new String[]{"128", "256", "512", "1024", "2048"};
-                ArrayAdapter<String> a = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, mbs);
-                cacheMb.setAdapter(a);
-                int want = DeviceSettings.INSTANCE.cacheMaxMb;
-                int sel = 2;
-                for (int i = 0; i < mbs.length; i++) if (Integer.parseInt(mbs[i]) == want) sel = i;
-                cacheMb.setSelection(sel);
-                cacheMb.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                    @Override public void onItemSelected(android.widget.AdapterView<?> parent, View v, int pos, long id) {
-                        int mb = Integer.parseInt(mbs[pos]);
-                        DeviceSettings.INSTANCE.cacheMaxMb = mb;
-                        try { DeviceSettings.INSTANCE.applyJson(new org.json.JSONObject().put("cacheMaxMb", mb)); } catch (Exception ignored) {}
-                        persistSettings();
-                        com.hongguotv.phone.core.PlaintextCache.enforceLimits();
-                        refreshCacheStats();
-                    }
-                    @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-                });
-            }
             if (clear != null) {
                 clear.setOnClickListener(v -> {
                     com.hongguotv.phone.core.PlaintextCache.clear();
@@ -725,6 +728,30 @@ public class MainActivity extends AppCompatActivity {
             refreshCacheStats();
         } catch (Exception e) {
             AppLog.w("setupCacheControls: " + e.getMessage());
+        }
+    }
+
+    private void highlightPrefetchChips() {
+        int[] ids = {R.id.chipPrefetch0, R.id.chipPrefetch1, R.id.chipPrefetch2, R.id.chipPrefetch3};
+        int cur = Math.max(0, Math.min(3, DeviceSettings.INSTANCE.prefetchEpisodes));
+        for (int i = 0; i < ids.length; i++) {
+            TextView c = findViewById(ids[i]);
+            if (c == null) continue;
+            c.setBackgroundResource(i == cur ? R.drawable.bg_chip_selected : R.drawable.bg_chip_normal);
+            c.setTextColor(i == cur ? 0xFFFFFFFF : 0xFF333333);
+        }
+    }
+
+    private void highlightCacheMbChips() {
+        int[] ids = {R.id.chipMb128, R.id.chipMb256, R.id.chipMb512, R.id.chipMb1024, R.id.chipMb2048};
+        int[] vals = {128, 256, 512, 1024, 2048};
+        int want = DeviceSettings.INSTANCE.cacheMaxMb;
+        for (int i = 0; i < ids.length; i++) {
+            TextView c = findViewById(ids[i]);
+            if (c == null) continue;
+            boolean on = vals[i] == want;
+            c.setBackgroundResource(on ? R.drawable.bg_chip_selected : R.drawable.bg_chip_normal);
+            c.setTextColor(on ? 0xFFFFFFFF : 0xFF333333);
         }
     }
 
