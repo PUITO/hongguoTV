@@ -23,6 +23,15 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/bindStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/tv_accent"
+            android:textSize="16sp"
+            android:text="状态：未绑定" />
+
+        <TextView
             android:id="@+id/hint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -103,7 +112,27 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
-            android:text="连接手机并进入播放" />
+            android:text="绑定手机（留在首页）" />
+
+        <LinearLayout
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp">
+            <Button
+                android:id="@+id/btnUnbind"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="解除绑定"
+                android:visibility="gone" />
+            <Button
+                android:id="@+id/btnEnterPlayer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="手动进播放"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/message"
