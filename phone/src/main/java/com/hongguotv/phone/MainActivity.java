@@ -128,8 +128,6 @@ public class MainActivity extends AppCompatActivity {
                         .setPositiveButton("删除", (d, w) -> {
                             WatchHistory.remove(this, sid);
                             loadSourceList(false);
-        setupCacheControls();
-
                             toast("已删除");
                         })
                         .setNegativeButton("取消", null)
@@ -249,6 +247,8 @@ public class MainActivity extends AppCompatActivity {
         AppLog.i("MainActivity 启动");
         com.hongguotv.phone.core.AppPlayback.init(this);
         com.hongguotv.phone.core.PlaintextCache.init(getCacheDir());
+        setupCacheControls();
+        fillCacheInputs();
         refreshCacheStats();
 
         findViewById(R.id.btnStart).setOnClickListener(v -> startServer());
@@ -309,6 +309,8 @@ public class MainActivity extends AppCompatActivity {
         switchOverlay.setChecked(s.showTvOverlay);
         switchKeepOn.setChecked(s.tvKeepScreenOn);
         switchTvLocal.setChecked(s.allowTvLocalControl);
+        fillCacheInputs();
+        refreshCacheStats();
     }
 
     private void applySetting(JSONObject o) {
@@ -682,10 +684,16 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupCacheControls() {
         try {
-            EditText inputPrefetch = findViewById(R.id.inputPrefetch);
-            EditText inputCacheMb = findViewById(R.id.inputCacheMb);
-            Button btnPrefetch = findViewById(R.id.btnApplyPrefetch);
-            Button btnCacheMb = findViewById(R.id.btnApplyCacheMb);
+            final EditText inputPrefetch = findViewById(R.id.inputPrefetch);
+            final EditText inputCacheMb = findViewById(R.id.inputCacheMb);
+            final Button btnPrefetch = findViewById(R.id.btnApplyPrefetch);
+            final Button btnCacheMb = findViewById(R.id.btnApplyCacheMb);
+            final Button clear = findViewById(R.id.btnClearCache);
+            AppLog.i("setupCacheControls ids: prefetch=" + (inputPrefetch != null)
+                    + " cacheMb=" + (inputCacheMb != null)
+                    + " btnP=" + (btnPrefetch != null)
+                    + " btnM=" + (btnCacheMb != null)
+                    + " clear=" + (clear != null));
             if (inputPrefetch != null) {
                 inputPrefetch.setText(String.valueOf(DeviceSettings.INSTANCE.prefetchEpisodes));
             }
@@ -697,6 +705,7 @@ public class MainActivity extends AppCompatActivity {
                     int n = 2;
                     try {
                         String s = inputPrefetch != null ? inputPrefetch.getText().toString().trim() : "2";
+                        if (s.isEmpty()) throw new NumberFormatException("empty");
                         n = Integer.parseInt(s);
                     } catch (Exception e) {
                         toast("请输入 0–5 的整数");
@@ -711,7 +720,8 @@ public class MainActivity extends AppCompatActivity {
                     persistSettings();
                     if (inputPrefetch != null) inputPrefetch.setText(String.valueOf(n));
                     refreshCacheStats();
-                    toast("预缓存已设为 " + n + " 集");
+                    toast("预缓存已设为 " + n + " 集并已保存");
+                    AppLog.i("prefetchEpisodes=" + n);
                 });
             }
             if (btnCacheMb != null) {
@@ -719,6 +729,7 @@ public class MainActivity extends AppCompatActivity {
                     int mb = 512;
                     try {
                         String s = inputCacheMb != null ? inputCacheMb.getText().toString().trim() : "512";
+                        if (s.isEmpty()) throw new NumberFormatException("empty");
                         mb = Integer.parseInt(s);
                     } catch (Exception e) {
                         toast("请输入数字，单位 MB");
@@ -734,28 +745,46 @@ public class MainActivity extends AppCompatActivity {
                     try { com.hongguotv.phone.core.PlaintextCache.enforceLimits(); } catch (Exception ignored) {}
                     if (inputCacheMb != null) inputCacheMb.setText(String.valueOf(mb));
                     refreshCacheStats();
-                    toast("缓存上限已设为 " + mb + " MB");
+                    toast("缓存上限已设为 " + mb + " MB 并已保存");
+                    AppLog.i("cacheMaxMb=" + mb);
                 });
             }
-            Button clear = findViewById(R.id.btnClearCache);
             if (clear != null) {
                 clear.setOnClickListener(v -> {
-                    com.hongguotv.phone.core.PlaintextCache.clear();
+                    try {
+                        com.hongguotv.phone.core.PlaintextCache.clear();
+                    } catch (Exception e) {
+                        AppLog.w("PlaintextCache.clear: " + e.getMessage());
+                    }
+                    try {
+                        if (CastServerService.CACHE != null) CastServerService.CACHE.clearAll();
+                    } catch (Exception e) {
+                        AppLog.w("MediaCache.clearAll: " + e.getMessage());
+                    }
                     refreshCacheStats();
                     toast("缓存已清理");
+                    AppLog.i("cache cleared by user");
                 });
+            } else {
+                AppLog.w("btnClearCache not found in layout");
             }
             refreshCacheStats();
         } catch (Exception e) {
-            AppLog.w("setupCacheControls: " + e.getMessage());
+            AppLog.e("setupCacheControls", e);
+            toast("缓存控件初始化失败: " + e.getMessage());
         }
     }
 
     private void persistSettings() {
         try {
             DeviceSettings.INSTANCE.revision++;
-            SettingsStore.save(this);
-        } catch (Exception ignored) {}
+            SettingsStore.saveSync(this);
+            AppLog.i("settings saved cacheMaxMb=" + DeviceSettings.INSTANCE.cacheMaxMb
+                    + " prefetch=" + DeviceSettings.INSTANCE.prefetchEpisodes);
+        } catch (Exception e) {
+            AppLog.w("persistSettings: " + e.getMessage());
+            toast("保存设置失败: " + e.getMessage());
+        }
     }
 
     private void fillCacheInputs() {
@@ -778,13 +807,23 @@ public class MainActivity extends AppCompatActivity {
             com.hongguotv.phone.core.PlaintextCache.Stats s = com.hongguotv.phone.core.PlaintextCache.stats();
             int files = s.getFiles();
             double mb = s.mb();
+            int mediaFiles = 0;
+            double mediaMb = 0;
+            try {
+                if (CastServerService.CACHE != null) {
+                    long[] m = CastServerService.CACHE.sizeStats();
+                    mediaFiles = (int) m[0];
+                    mediaMb = m[1] / (1024.0 * 1024.0);
+                }
+            } catch (Exception ignored) {}
             String text = String.format(java.util.Locale.US,
-                    "当前缓存：%d 个文件 · %.1f MB（上限 %d MB / 预取 %d 集）",
-                    files, mb, DeviceSettings.INSTANCE.cacheMaxMb,
+                    "明文缓存：%d 个 · %.1f MB；推流缓存：%d 个 · %.1f MB\n上限 %d MB / 预取 %d 集",
+                    files, mb, mediaFiles, mediaMb,
+                    DeviceSettings.INSTANCE.cacheMaxMb,
                     DeviceSettings.INSTANCE.prefetchEpisodes);
             stats.setText(text);
         } catch (Throwable e) {
-            stats.setText("当前缓存：0 个文件 · 0.0 MB（初始化后刷新）");
+            stats.setText("当前缓存：计算失败（" + e.getMessage() + "）");
             AppLog.w("refreshCacheStats: " + e.getMessage());
         }
     }

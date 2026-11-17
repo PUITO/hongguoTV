@@ -82,15 +82,49 @@ public final class MediaCache {
     public synchronized void clearOld(int keepMax) {
         File[] files = dir.listFiles();
         if (files == null || files.length <= keepMax) return;
-        // simple: delete smallest first if over quota ~800MB
         long total = 0;
         for (File f : files) total += f.length();
-        if (total < 800L * 1024 * 1024) return;
+        long maxBytes = (long) DeviceSettings.INSTANCE.cacheMaxMb * 1024L * 1024L;
+        if (total < maxBytes && files.length <= keepMax) return;
+        java.util.Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
         for (File f : files) {
-            if (f.getName().startsWith(currentKey)) continue;
+            if (currentKey != null && f.getName().startsWith(currentKey)) continue;
             //noinspection ResultOfMethodCallIgnored
             f.delete();
+            if (dir.listFiles() != null && dir.listFiles().length <= keepMax) break;
         }
+    }
+
+    /** 用户手动清理推流缓存 */
+    public synchronized void clearAll() {
+        try {
+            for (Job j : jobs.values()) {
+                try {
+                    if (j.future != null) j.future.cancel(true);
+                } catch (Exception ignored) {}
+            }
+            jobs.clear();
+            currentKey = "";
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    //noinspection ResultOfMethodCallIgnored
+                    f.delete();
+                }
+            }
+            Log.i(TAG, "cache cleared all");
+        } catch (Exception e) {
+            Log.w(TAG, "clearAll: " + e.getMessage());
+        }
+    }
+
+    /** [0]=file count, [1]=total bytes */
+    public synchronized long[] sizeStats() {
+        File[] files = dir.listFiles();
+        if (files == null) return new long[]{0, 0};
+        long total = 0;
+        for (File f : files) total += f.length();
+        return new long[]{files.length, total};
     }
 
     static HttpURLConnection openUpstream(String url, long existing) {

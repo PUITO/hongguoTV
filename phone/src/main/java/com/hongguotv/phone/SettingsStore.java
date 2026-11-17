@@ -42,6 +42,18 @@ public final class SettingsStore {
         }
     }
 
+    /** 同步写入，确保缓存上限等立刻落盘 */
+    public static void saveSync(Context ctx) {
+        try {
+            JSONObject o = DeviceSettings.INSTANCE.toJson();
+            boolean ok = prefs(ctx).edit().putString(KEY, o.toString()).commit();
+            if (!ok) AppLog.w("SettingsStore.saveSync commit failed");
+        } catch (Exception e) {
+            AppLog.w("SettingsStore.saveSync: " + e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+
     public static String loadPair(Context ctx, String fallback) {
         return prefs(ctx).getString(KEY_PAIR, fallback);
     }
