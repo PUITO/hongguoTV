@@ -106,3 +106,7 @@ object Sm3Native {
         return digest
     }
 }
+
+fun rol(v: Int, n: Int) = Integer.rotateLeft(v, n)
+
+fun ror(v: Int, n: Int) = Integer.rotateRight(v, n)
