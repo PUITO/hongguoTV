@@ -26,7 +26,7 @@ public final class AppPlayClient {
         }
         Exception last = null;
         // 最多尝试 4 档
-        int limit = Math.min(4, ranked.size());
+        int limit = Math.min(6, ranked.size());
         for (int i = 0; i < limit; i++) {
             AppPlayback.Stream stream = ranked.get(i);
             String codec = stream.getCodec() == null ? "" : stream.getCodec();
@@ -50,9 +50,18 @@ public final class AppPlayClient {
                     + " h=" + stream.getHeight() + " enc=" + stream.getEncrypted()
                     + " codec=" + codec);
             try {
+                String qLabel = stream.getQuality();
+                if (qLabel == null || qLabel.isEmpty() || "app".equalsIgnoreCase(qLabel)) {
+                    int h = stream.getHeight();
+                    if (h >= 1080) qLabel = "1080p";
+                    else if (h >= 720) qLabel = "720p";
+                    else if (h >= 480) qLabel = "480p";
+                    else if (h > 0) qLabel = h + "p";
+                    else qLabel = "app";
+                }
                 JSONObject o = new JSONObject()
                         .put("url", stream.getUrl())
-                        .put("quality", stream.getQuality())
+                        .put("quality", qLabel)
                         .put("vid", vid)
                         .put("source", "app")
                         .put("height", stream.getHeight())

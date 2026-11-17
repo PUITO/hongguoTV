@@ -100,26 +100,15 @@ public class SeriesDetailActivity extends Activity {
                 String vid = ep.optString("vid");
                 boolean locked = ep.optBoolean("locked");
                 JSONObject resolved;
-                if (!locked && ep.optString("url").length() > 0) {
-                    // still try App for higher quality when preferred not 360p
-                    String pref = DeviceSettings.INSTANCE.preferredQuality;
-                    if (pref != null && !"360p".equals(pref)) {
-                        try {
-                            resolved = HongguoClient.resolveEpisode(seriesId, vid, idx + 1, pref);
-                        } catch (Exception e) {
-                            resolved = ep;
-                        }
-                    } else {
-                        resolved = ep;
-                    }
-                } else {
-                    AppLog.i("调用 resolveEpisode vid=" + vid + " ep=" + (idx + 1) + " locked=" + locked);
-                    resolved = HongguoClient.resolveEpisode(seriesId, vid, idx + 1,
-                            DeviceSettings.INSTANCE.preferredQuality);
-                    AppLog.i("resolve 结果 source=" + resolved.optString("source")
-                            + " quality=" + resolved.optString("quality")
-                            + " url=" + AppLog.clip(resolved.optString("url"), 80));
-                }
+                                // 始终按 preferredQuality 走 App 取流，避免公共源 360p 试看
+                AppLog.i("调用 resolveEpisode vid=" + vid + " ep=" + (idx + 1) + " locked=" + locked
+                        + " pref=" + DeviceSettings.INSTANCE.preferredQuality);
+                resolved = HongguoClient.resolveEpisode(seriesId, vid, idx + 1,
+                        DeviceSettings.INSTANCE.preferredQuality);
+                AppLog.i("resolve 结果 source=" + resolved.optString("source")
+                        + " quality=" + resolved.optString("quality")
+                        + " height=" + resolved.optInt("height")
+                        + " url=" + AppLog.clip(resolved.optString("url"), 80));
                 String url = resolved.optString("url");
                 if (url.isEmpty()) throw new IllegalStateException("取流失败 "
                         + com.hongguotv.phone.core.AppPlayback.lastError());
@@ -139,23 +128,28 @@ public class SeriesDetailActivity extends Activity {
                     episodeAdapter.notifyDataSetChanged();
                     if (pushTv) {
                         try {
+                            // 有序全列表：每集带 vid，联播切集时按 preferredQuality 重解析
                             JSONArray pl = new JSONArray();
-                            pl.put(new JSONObject()
-                                    .put("url", fUrl)
-                                    .put("title", fTitle)
-                                    .put("seriesId", seriesId)
-                                    .put("quality", fQuality));
-                            // also enqueue unlocked neighbors if any
                             for (int i = 0; i < eps.length(); i++) {
-                                if (i == idx) continue;
                                 JSONObject e = eps.getJSONObject(i);
-                                if (e.optBoolean("locked") || e.optString("url").isEmpty()) continue;
-                                pl.put(new JSONObject()
-                                        .put("url", e.optString("url"))
+                                JSONObject item = new JSONObject()
                                         .put("title", detail.optString("title") + " 第" + (i + 1) + "集")
-                                        .put("seriesId", seriesId));
+                                        .put("seriesId", seriesId)
+                                        .put("vid", e.optString("vid"))
+                                        .put("episode", i + 1);
+                                if (i == idx) {
+                                    item.put("url", fUrl)
+                                            .put("quality", fQuality)
+                                            .put("source", resolved.optString("source", "app"));
+                                } else {
+                                    // 占位：不把公共 360 写死进列表，next 时再取流
+                                    item.put("url", "")
+                                            .put("quality", "")
+                                            .put("source", "");
+                                }
+                                pl.put(item);
                             }
-                            CastServerService.NOW.setPlaylist(pl, 0);
+                            CastServerService.NOW.setPlaylist(pl, idx);
                             // TV 只收手机流：强制 source 为明文路径，TV 播 http://phone:8765/stream/current
                             CastServerService.NOW.sourceUrl = fUrl;
                             if (CastServerService.CACHE != null && !fUrl.startsWith("file://") && !fUrl.startsWith("/")) {

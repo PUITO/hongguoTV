@@ -1,6 +1,8 @@
 package com.hongguotv.phone;
 
 import com.hongguotv.shared.CastProtocol;
+import com.hongguotv.phone.AppLog;
+import com.hongguotv.phone.app.AppPlayClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -72,6 +74,7 @@ public final class NowPlaying {
         if (index + 1 >= playlist.length()) return false;
         index++;
         applyIndex();
+        resolvePreferredQualityLocked();
         return true;
     }
 
@@ -79,7 +82,51 @@ public final class NowPlaying {
         if (index <= 0) return false;
         index--;
         applyIndex();
+        resolvePreferredQualityLocked();
         return true;
+    }
+
+    /**
+     * 联播/切集后按设置的 preferredQuality 重新取流，避免列表里残留的公共 360p。
+     * 调用方须已持有 this 锁。
+     */
+    private void resolvePreferredQualityLocked() {
+        try {
+            JSONObject item = playlist.optJSONObject(index);
+            if (item == null) return;
+            String vid = item.optString("vid", "");
+            if (vid.isEmpty()) return;
+            String pref = DeviceSettings.INSTANCE.preferredQuality;
+            if (pref == null || pref.isEmpty()) pref = "1080p";
+            String curQ = item.optString("quality", "");
+            String src = item.optString("source", "");
+            String url = item.optString("url", sourceUrl);
+            boolean weak = url == null || url.isEmpty()
+                    || "web-public".equals(src)
+                    || curQ.contains("360")
+                    || url.contains("/360p.")
+                    || url.contains("hongguoduanju.com/video/public");
+            boolean mismatch = !"360p".equals(pref) && !curQ.toLowerCase().contains(
+                    pref.toLowerCase().replace("p", ""));
+            // 已是目标清晰度的本地解密文件则跳过
+            if (!weak && !mismatch && url.startsWith("file://")) return;
+            if (!weak && !mismatch && "app-decrypted".equals(src)) return;
+            AppLog.i("切集重解析 vid=" + vid + " pref=" + pref + " wasQ=" + curQ + " src=" + src);
+            JSONObject r = AppPlayClient.fetchEpisode(vid, pref);
+            String nu = r.optString("url", "");
+            if (nu.isEmpty()) return;
+            sourceUrl = nu;
+            String nq = r.optString("quality", pref);
+            item.put("url", nu);
+            item.put("quality", nq);
+            item.put("source", r.optString("source", "app"));
+            item.put("height", r.optInt("height", 0));
+            updatedAt = System.currentTimeMillis();
+            bump();
+            AppLog.i("切集重解析成功 q=" + nq + " url=" + AppLog.clip(nu, 80));
+        } catch (Exception e) {
+            AppLog.w("切集重解析失败: " + e.getMessage());
+        }
     }
 
     public synchronized void control(String action, JSONObject body) {

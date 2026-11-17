@@ -151,40 +151,46 @@ public final class HongguoClient {
 
     /** 单集取流：公共源优先，失败则 App 签名（对齐 drama 按集请求） */
     public static JSONObject resolveEpisode(String seriesId, String vid, int episode, String preferredQuality) throws Exception {
-        // 1) public web
-        if (vid != null && !vid.isEmpty()) {
-            String[] qs = qualityOrder(preferredQuality == null ? "360p" : preferredQuality);
-            for (String q : qs) {
-                String url = ORIGIN + "/video/public/" + vid + "/" + q + ".mp4";
-                // return candidate; player will error if 404
-                if ("360p".equals(q) || "720p".equals(q) || "1080p".equals(q)) {
-                    // Prefer trying app for non-first episodes; still return public URL for ep1-accessible
-                }
-            }
-            // Always attempt App for locked / higher quality
+        if (vid == null || vid.isEmpty()) throw new IllegalStateException("无 vid");
+        String pref = preferredQuality == null || preferredQuality.isEmpty() ? "1080p" : preferredQuality;
+        // 1) 优先 App 签名取流（完整集 + 可选清晰度）；公共源仅作最后兜底试看
+        Exception appErr = null;
+        for (int attempt = 1; attempt <= 2; attempt++) {
             try {
-                AppLog.i("AppPlayClient.fetchEpisode vid=" + vid + " pref=" + preferredQuality);
-                org.json.JSONObject app = com.hongguotv.phone.app.AppPlayClient.fetchEpisode(vid, preferredQuality);
+                AppLog.i("AppPlayClient.fetchEpisode vid=" + vid + " pref=" + pref + " try=" + attempt);
+                org.json.JSONObject app = com.hongguotv.phone.app.AppPlayClient.fetchEpisode(vid, pref);
                 if (app != null && app.optString("url").length() > 0) {
-                    AppLog.i("App 取流成功 q=" + app.optString("quality"));
-                    return app.put("title", "第" + episode + "集").put("seriesId", seriesId).put("episode", episode);
+                    String q = app.optString("quality", pref);
+                    AppLog.i("App 取流成功 q=" + q + " h=" + app.optInt("height")
+                            + " src=" + app.optString("source"));
+                    return app.put("title", "第" + episode + "集")
+                            .put("seriesId", seriesId)
+                            .put("episode", episode)
+                            .put("vid", vid);
                 }
-                AppLog.w("App 取流返回空 url last=" + com.hongguotv.phone.core.AppPlayback.lastError());
+                AppLog.w("App 取流空 url last=" + com.hongguotv.phone.core.AppPlayback.lastError());
             } catch (Exception e) {
-                AppLog.e("App 取流异常", e);
+                appErr = e;
+                AppLog.e("App 取流异常 try=" + attempt, e);
+                try { com.hongguotv.phone.core.AppPlayback.clearIdentity(); } catch (Exception ignored) {}
             }
-            AppLog.w("App全部清晰度失败，回退公共试看360p vid=" + vid);
-            String publicUrl = ORIGIN + "/video/public/" + vid + "/360p.mp4";
+        }
+        // 2) 公共源兜底
+        String[] qs = qualityOrder(pref);
+        for (String q : qs) {
+            String publicUrl = ORIGIN + "/video/public/" + vid + "/" + q + ".mp4";
+            AppLog.w("回退公共 " + q + " vid=" + vid
+                    + (appErr != null ? (" cause=" + appErr.getMessage()) : ""));
             return new JSONObject()
                     .put("url", publicUrl)
-                    .put("quality", "360p")
+                    .put("quality", q)
                     .put("vid", vid)
                     .put("source", "web-public")
                     .put("seriesId", seriesId)
                     .put("episode", episode)
                     .put("title", "第" + episode + "集");
         }
-        throw new IllegalStateException("无 vid");
+        throw new IllegalStateException("取流失败" + (appErr != null ? (": " + appErr.getMessage()) : ""));
     }
 
     public static JSONObject resolvePlay(String seriesId, String vidOrEp) throws Exception {

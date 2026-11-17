@@ -204,7 +204,8 @@ object AppPlayback {
         }
         fun heightOf(s: Stream): Int {
             if (s.height > 0) return s.height
-            return Regex("(\\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            val fromQ = Regex("(\\d{3,4})").find(s.quality)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            return fromQ ?: 0
         }
         fun codecPenalty(s: Stream): Int {
             val c = (s.codec + " " + s.quality).lowercase()
@@ -212,23 +213,23 @@ object AppPlayback {
                 "h264" in c || "avc1" in c || "avc" in c -> 0
                 "bytevc1" in c || "hvc1" in c || "hevc" in c || "h265" in c -> 5
                 "bytevc2" in c || "bvc2" in c -> 1000
-                // 无 codec 标注时：1080 当 HEVC，低清当可疑 bvc2
-                s.height >= 1080 || "1080" in s.quality -> 8
-                s.height in 1..720 || Regex("360|480|540|720").containsMatchIn(s.quality) -> 200
+                heightOf(s) >= 1080 || "1080" in s.quality -> 8
+                heightOf(s) in 1..720 || Regex("360|480|540|720").containsMatchIn(s.quality) -> 200
                 else -> 50
             }
         }
+        // 不再优先未加密流（多为公共试看 360p）
         return list.sortedWith(
-            compareBy<Stream> { if (it.encrypted) 1 else 0 }
-                .thenBy { codecPenalty(it) }
+            compareBy<Stream> { codecPenalty(it) }
                 .thenBy { s ->
                     val h = heightOf(s)
-                    when {
-                        h >= 1080 -> 0
-                        h == 0 -> 5000
-                        else -> 100 + kotlin.math.abs(h - want)
+                    if (h <= 0) 10000
+                    else {
+                        val dist = kotlin.math.abs(h - want)
+                        if (h >= want) dist else dist + 50
                     }
                 }
+                .thenBy { if (it.encrypted) 0 else 1 }
                 .thenByDescending { heightOf(it) },
         )
     }
