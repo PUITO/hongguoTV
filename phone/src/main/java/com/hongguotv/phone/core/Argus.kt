@@ -359,15 +359,23 @@ private fun decodeForm(value: String): String = runCatching {
 object PlayerSigner {
     const val LICENSE_ID = 1_611_921_764L
     private val random = SecureRandom()
-    fun headers(query: String, body: ByteArray?, ts: Long = System.currentTimeMillis() / 1000): Map<String, String> {
-        val aid = queryParam(query, "aid")?.toLongOrNull() ?: 1967L
+    fun headers(
+        query: String,
+        body: ByteArray?,
+        ts: Long = System.currentTimeMillis() / 1000,
+        deviceId: String = queryParam(query, "device_id").orEmpty(),
+        installId: String = queryParam(query, "iid").orEmpty(),
+    ): Map<String, String> {
+        val aid = queryParam(query, "aid")?.toLongOrNull() ?: 8662L
         val stub = body?.takeIf { it.isNotEmpty() }?.let { digest("MD5", it).hex() }.orEmpty()
         val ladonRandom = ByteArray(4).also { random.nextBytes(it) }
+        val did = deviceId.ifEmpty { queryParam(query, "device_id").orEmpty() }
+        val iid = installId.ifEmpty { queryParam(query, "iid").orEmpty() }
         val headers = linkedMapOf(
             "x-ss-req-ticket" to (ts * 1000).toString(),
             "x-khronos" to ts.toString(),
             "x-ladon" to Ladon.encrypt(ts, LICENSE_ID, aid, ladonRandom),
-            "x-argus" to Argus.sign(query, stub, ts, aid, LICENSE_ID, queryParam(query, "device_id").orEmpty(), "", random.nextInt()),
+            "x-argus" to Argus.sign(query, stub, ts, aid, LICENSE_ID, did, iid, random.nextInt()),
         )
         if (stub.isNotEmpty()) headers["x-ss-stub"] = stub
         return headers

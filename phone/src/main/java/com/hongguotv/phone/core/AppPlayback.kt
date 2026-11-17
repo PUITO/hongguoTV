@@ -19,7 +19,12 @@ import java.util.zip.GZIPOutputStream
  * 针对 empty body：换设备重试、Connection:close、非 gzip POST。
  */
 object AppPlayback {
-    data class Identity(val deviceId: String, val installId: String, val cdid: String)
+    data class Identity(
+        val deviceId: String,
+        val installId: String,
+        val cdid: String,
+        val cookies: Map<String, String> = emptyMap(),
+    )
     data class Stream(
         val url: String,
         val quality: String,
@@ -34,15 +39,15 @@ object AppPlayback {
     private val VIDEO_API =
         "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/"
     private val VIDEO_UA =
-        "com.phoenix.read/71332 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3; Cronet/TTNetVersion:04657795 2026-01-23 QuicVersion:c67e9834 2025-09-08)"
+        "com.phoenix.read/73932 (Linux; U; Android 13; zh_CN; MI 12; Build/TKQ1; Cronet/TTNetVersion:8d40f833 2026-03-03 QuicVersion:c67e9834 2025-09-08)"
 
     private fun baseDevice(id: Identity): LinkedHashMap<String, String> = linkedMapOf(
         "ac" to "wifi",
         "channel" to "update_64",
         "aid" to "8662",
         "app_name" to "novelread",
-        "version_code" to "71332",
-        "version_name" to "7.1.3.32",
+        "version_code" to "73932",
+        "version_name" to "7.3.9.32",
         "device_platform" to "android",
         "os" to "android",
         "ssmix" to "a",
@@ -51,13 +56,13 @@ object AppPlayback {
         "language" to "zh",
         "os_api" to "36",
         "os_version" to "16",
-        "manifest_version_code" to "71332",
+        "manifest_version_code" to "73932",
         "resolution" to "1280*2772",
         "dpi" to "520",
-        "update_version_code" to "71332",
+        "update_version_code" to "73932",
         "host_abi" to "arm64-v8a",
         "dragon_device_type" to "phone",
-        "pv_player" to "71332",
+        "pv_player" to "73932",
         "compliance_status" to "0",
         "need_personal_recommend" to "1",
         "player_so_load" to "1",
@@ -125,43 +130,36 @@ object AppPlayback {
             }
             AppLog.i("设备#${round + 1} did=${id.deviceId} iid=${id.installId} forceNew=$forceNew")
 
-            // 1 TAB GET
-            try {
-                val list = fetchTabGet(id, vid, closeConn = round > 0)
-                if (list.isNotEmpty()) {
-                    AppLog.i("TAB成功 streams=${list.size} q=${list.first().quality}")
-                    return list
+            // 1 TAB GET — 多域名
+            for (host in VIDEO_TAB_HOSTS) {
+                try {
+                    val list = fetchTabGet(id, vid, closeConn = round > 0, baseUrl = host)
+                    if (list.isNotEmpty()) {
+                        AppLog.i("TAB成功 host=${host.substringAfter("https://").substringBefore("/")} streams=${list.size} q=${list.first().quality}")
+                        return list
+                    }
+                    errors += "TAB空@${host.substringAfter("https://").substringBefore("/")}"
+                } catch (e: Exception) {
+                    errors += "TAB:${e.message}"
+                    AppLog.w("TAB 失败 ${host.substringAfter("https://").substringBefore("/")}: ${e.message}")
                 }
-                errors += "TAB空模型"
-            } catch (e: Exception) {
-                errors += "TAB:${e.message}"
-                AppLog.w("TAB 失败: ${e.message}")
             }
 
-            // 2 POST gzip
-            try {
-                val list = fetchApiPost(id, vid, gzip = true, closeConn = true)
-                if (list.isNotEmpty()) {
-                    AppLog.i("POST-gzip成功 streams=${list.size} q=${list.first().quality}")
-                    return list
+            // 2 POST gzip / raw — 多域名
+            for (host in VIDEO_API_HOSTS) {
+                for (gz in listOf(true, false)) {
+                    try {
+                        val list = fetchApiPost(id, vid, gzip = gz, closeConn = true, baseUrl = host)
+                        if (list.isNotEmpty()) {
+                            AppLog.i("POST成功 gz=$gz host=${host.substringAfter("https://").substringBefore("/")} streams=${list.size}")
+                            return list
+                        }
+                        errors += "POST空 gz=$gz"
+                    } catch (e: Exception) {
+                        errors += "POST-${if (gz) "gzip" else "raw"}:${e.message}"
+                        AppLog.w("POST 失败 gz=$gz: ${e.message}")
+                    }
                 }
-                errors += "POST-gzip空模型"
-            } catch (e: Exception) {
-                errors += "POST-gzip:${e.message}"
-                AppLog.w("POST-gzip 失败: ${e.message}")
-            }
-
-            // 3 POST 明文 JSON（部分节点对 gzip 返回空）
-            try {
-                val list = fetchApiPost(id, vid, gzip = false, closeConn = true)
-                if (list.isNotEmpty()) {
-                    AppLog.i("POST-raw成功 streams=${list.size} q=${list.first().quality}")
-                    return list
-                }
-                errors += "POST-raw空模型"
-            } catch (e: Exception) {
-                errors += "POST-raw:${e.message}"
-                AppLog.w("POST-raw 失败: ${e.message}")
             }
 
             // 本轮全空 → 清身份换设备
@@ -266,18 +264,24 @@ object AppPlayback {
         val text = readBody(conn)
         AppLog.i("注册 HTTP $code hdrs=${headerSummary(conn)} body=${AppLog.clip(text, 180)}")
         if (code >= 400) throw IllegalStateException("register HTTP $code ${text.take(120)}")
-        val registered = DeviceRegister.parse(text)
+        val setCookies = mutableListOf<String>()
+        try {
+            conn.headerFields?.forEach { (k, v) ->
+                if (k != null && k.equals("Set-Cookie", true) && v != null) setCookies.addAll(v)
+            }
+        } catch (_: Exception) {}
+        val registered = DeviceRegister.parse(text, setCookies)
             ?: throw IllegalStateException("register parse: ${text.take(160)}")
         if (registered.deviceId.isBlank() || registered.installId.isBlank()
             || registered.deviceId == "0" || registered.installId == "0"
         ) {
             throw IllegalStateException("register empty id")
         }
-        AppLog.i("注册成功 did=${registered.deviceId} iid=${registered.installId} new=${registered.newUser}")
-        return Identity(registered.deviceId, registered.installId, cdid)
+        AppLog.i("注册成功 did=${registered.deviceId} iid=${registered.installId} new=${registered.newUser} cookies=${registered.cookies.keys}")
+        return Identity(registered.deviceId, registered.installId, cdid, registered.cookies)
     }
 
-    private fun fetchTabGet(id: Identity, vid: String, closeConn: Boolean): List<Stream> {
+    private fun fetchTabGet(id: Identity, vid: String, closeConn: Boolean, baseUrl: String = VIDEO_TAB): List<Stream> {
         val ticket = System.currentTimeMillis()
         val khronos = ticket / 1000
         val params = baseDevice(id)
@@ -293,21 +297,22 @@ object AppPlayback {
         params["ts"] = khronos.toString()
         params["_rticket"] = ticket.toString()
         val query = encodeQuery(params)
-        val url = VIDEO_TAB + "?" + query
-        val signed = PlayerSigner.headers(query, null, khronos)
+        val url = baseUrl + "?" + query
+        val signed = PlayerSigner.headers(query, null, khronos, id.deviceId, id.installId)
         AppLog.i("TAB 签名 argusLen=${signed["x-argus"]?.length ?: 0}")
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,
             "Accept" to "application/json; charset=utf-8,application/x-protobuf",
             "sdk-version" to "2",
             "x-xs-from-web" to "0",
-            "passport-sdk-version" to "50561",
+            "passport-sdk-version" to "5051452",
             "x-ss-dp" to "8662",
             "x-tt-dt" to "",
             "x-tt-store-region" to "cn",
             "x-tt-store-region-src" to "did",
             "x-tt-request-tag" to "t=0;n=0",
         )
+        cookieHeader(id)?.let { headers["Cookie"] = it }
         if (closeConn) headers["Connection"] = "close"
         headers.putAll(signed)
         val conn = open(url, "GET", headers, closeConn)
@@ -322,7 +327,7 @@ object AppPlayback {
         return parseStreams(root)
     }
 
-    private fun fetchApiPost(id: Identity, vid: String, gzip: Boolean, closeConn: Boolean): List<Stream> {
+    private fun fetchApiPost(id: Identity, vid: String, gzip: Boolean, closeConn: Boolean, baseUrl: String = VIDEO_API): List<Stream> {
         val payload = JSONObject()
             .put(
                 "biz_param",
@@ -346,8 +351,8 @@ object AppPlayback {
         params["ts"] = khronos.toString()
         params["_rticket"] = ticket.toString()
         val query = encodeQuery(params)
-        val url = VIDEO_API + "?" + query
-        val signed = PlayerSigner.headers(query, body, khronos)
+        val url = baseUrl + "?" + query
+        val signed = PlayerSigner.headers(query, body, khronos, id.deviceId, id.installId)
         AppLog.i("POST 签名 gzip=$gzip argusLen=${signed["x-argus"]?.length ?: 0} body=${body.size}")
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,
@@ -361,6 +366,7 @@ object AppPlayback {
             "x-tt-store-region" to "cn",
             "x-tt-store-region-src" to "did",
         )
+        cookieHeader(id)?.let { headers["Cookie"] = it }
         if (gzip) headers["Content-Encoding"] = "gzip"
         if (closeConn) headers["Connection"] = "close"
         headers.putAll(signed)
@@ -566,19 +572,32 @@ object AppPlayback {
             val cl = conn.getHeaderField("Content-Length")
             val ce = conn.getHeaderField("Content-Encoding")
             val ct = conn.getHeaderField("Content-Type")
-            "cl=$cl ce=$ce ct=$ct"
+            val logid = conn.getHeaderField("x-tt-logid") ?: conn.getHeaderField("X-Tt-Logid")
+            val server = conn.getHeaderField("Server")
+            "cl=$cl ce=$ce ct=$ct logid=$logid server=$server"
         } catch (_: Exception) {
             ""
         }
     }
 
+    private fun cookieHeader(id: Identity): String? {
+        if (id.cookies.isEmpty()) {
+            // 最低限度：install_id / store-region
+            return "install_id=${id.installId}; store-region=cn; store-region-src=did"
+        }
+        return id.cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
+    }
+
     private fun persist(id: Identity) {
         val ctx = appContext ?: return
-        ctx.getSharedPreferences("app_playback", Context.MODE_PRIVATE).edit()
+        val ed = ctx.getSharedPreferences("app_playback", Context.MODE_PRIVATE).edit()
             .putString("device_id", id.deviceId)
             .putString("install_id", id.installId)
             .putString("cdid", id.cdid)
-            .apply()
+        if (id.cookies.isNotEmpty()) {
+            ed.putString("cookies", id.cookies.entries.joinToString("\n") { "${it.key}=${it.value}" })
+        }
+        ed.apply()
     }
 
     private fun loadPersisted(): Identity? {
@@ -588,7 +607,12 @@ object AppPlayback {
         val i = sp.getString("install_id", null) ?: return null
         val c = sp.getString("cdid", null) ?: return null
         if (d.isBlank() || i.isBlank() || d == "0") return null
-        AppLog.i("加载已保存设备 did=$d")
-        return Identity(d, i, c)
+        val cookies = linkedMapOf<String, String>()
+        sp.getString("cookies", null)?.lines()?.forEach { line ->
+            val eq = line.indexOf('=')
+            if (eq > 0) cookies[line.substring(0, eq)] = line.substring(eq + 1)
+        }
+        AppLog.i("加载已保存设备 did=$d cookies=${cookies.keys}")
+        return Identity(d, i, c, cookies)
     }
 }
