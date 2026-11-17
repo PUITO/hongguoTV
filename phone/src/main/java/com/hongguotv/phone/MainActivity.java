@@ -47,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
     private ViewFlipper flipper;
     private TextView topBar, status, bindStatus, pairCodeView, searchResult, cacheStatus, remoteHint;
     private EditText urlInput, titleInput, searchInput, seriesInput, epInput;
-    private SwitchCompat switchAutoNext, switchOverlay, switchKeepOn, switchTvLocal;
+    private SwitchCompat switchAutoNext, switchOverlay, switchKeepOn, switchTvLocal, switchQualityFallback;
     private RadioGroup playModeGroup;
     private ListView seriesList;
     private TextView listHeader;
@@ -91,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
         cacheStatus = findViewById(R.id.cacheStatus);
         remoteHint = findViewById(R.id.remoteHint);
         switchAutoNext = findViewById(R.id.switchAutoNext);
+        switchQualityFallback = findViewById(R.id.switchQualityFallback);
         switchOverlay = findViewById(R.id.switchOverlay);
         switchKeepOn = findViewById(R.id.switchKeepOn);
         switchTvLocal = findViewById(R.id.switchTvLocal);
@@ -267,6 +268,9 @@ public class MainActivity extends AppCompatActivity {
             toast(CastProtocol.MODE_DIRECT.equals(mode) ? "已切换：电视直链" : "已切换：手机推流");
         });
         switchAutoNext.setOnCheckedChangeListener((b, c) -> applySetting(put("autoNext", c)));
+        if (switchQualityFallback != null) {
+            switchQualityFallback.setOnCheckedChangeListener((b, c) -> applySetting(put("allowQualityFallback", c)));
+        }
         switchOverlay.setOnCheckedChangeListener((b, c) -> applySetting(put("showTvOverlay", c)));
         switchKeepOn.setOnCheckedChangeListener((b, c) -> applySetting(put("tvKeepScreenOn", c)));
         switchTvLocal.setOnCheckedChangeListener((b, c) -> applySetting(put("allowTvLocalControl", c)));
@@ -301,6 +305,7 @@ public class MainActivity extends AppCompatActivity {
         DeviceSettings s = DeviceSettings.INSTANCE;
         playModeGroup.check(s.isProxy() ? R.id.modeProxy : R.id.modeDirect);
         switchAutoNext.setChecked(s.autoNext);
+        if (switchQualityFallback != null) switchQualityFallback.setChecked(s.allowQualityFallback);
         switchOverlay.setChecked(s.showTvOverlay);
         switchKeepOn.setChecked(s.tvKeepScreenOn);
         switchTvLocal.setChecked(s.allowTvLocalControl);

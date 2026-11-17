@@ -1,6 +1,7 @@
 package com.hongguotv.phone.app;
 
 import com.hongguotv.phone.AppLog;
+import com.hongguotv.phone.DeviceSettings;
 import com.hongguotv.phone.core.AppPlayback;
 import com.hongguotv.phone.core.PlaintextCache;
 
@@ -20,13 +21,28 @@ public final class AppPlayClient {
     }
 
     public static JSONObject fetchEpisode(String vid, String preferredQuality, boolean decrypt) throws Exception {
-        List<AppPlayback.Stream> ranked = AppPlayback.fetchRanked(vid, preferredQuality);
+                List<AppPlayback.Stream> ranked = AppPlayback.fetchRanked(vid, preferredQuality);
         if (ranked == null || ranked.isEmpty()) {
             throw new IllegalStateException("app play empty");
         }
+        boolean allowFb = DeviceSettings.INSTANCE.allowQualityFallback;
+        int wantH = heightWanted(preferredQuality);
+        if (!allowFb) {
+            // 只保留与用户所选分辨率匹配的档（不自动降级）
+            java.util.ArrayList<AppPlayback.Stream> exact = new java.util.ArrayList<>();
+            for (AppPlayback.Stream s : ranked) {
+                if (matchesPreferred(s, preferredQuality, wantH)) exact.add(s);
+            }
+            AppLog.i("严格清晰度 pref=" + preferredQuality + " 候选=" + ranked.size()
+                    + " 匹配=" + exact.size() + " fallback=off");
+            if (exact.isEmpty()) {
+                throw new IllegalStateException("无匹配清晰度 " + preferredQuality
+                        + "（已关闭降级；可在设置开启「允许清晰度降级」）");
+            }
+            ranked = exact;
+        }
         Exception last = null;
-        // 最多尝试 4 档
-        int limit = Math.min(6, ranked.size());
+        int limit = allowFb ? Math.min(6, ranked.size()) : ranked.size();
         for (int i = 0; i < limit; i++) {
             AppPlayback.Stream stream = ranked.get(i);
             String codec = stream.getCodec() == null ? "" : stream.getCodec();

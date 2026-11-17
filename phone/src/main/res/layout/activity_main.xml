@@ -141,6 +141,14 @@
                     android:layout_marginTop="12dp" android:text="推荐清晰度（公共源目前多为 360p）" />
                 <Spinner android:id="@+id/qualitySpinner" android:layout_width="match_parent"
                     android:layout_height="48dp" />
+                <androidx.appcompat.widget.SwitchCompat android:id="@+id/switchQualityFallback"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="允许清晰度降级（关闭则只加载所选分辨率）"
+                    android:checked="false" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textSize="12sp" android:textColor="@color/hg_text_secondary"
+                    android:text="默认关闭：选 1080 就只解析 1080，失败不自动换成 720/360 试看。" />
                 
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="16dp" android:textStyle="bold" android:text="缓存与预取（推流流畅度）" />

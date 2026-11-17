@@ -16,6 +16,8 @@ public final class DeviceSettings {
     public volatile float defaultSpeed = 1.5f;
     /** auto|360p|480p|720p|1080p */
     public volatile String preferredQuality = "1080p";
+    /** false=只解析用户选定清晰度，不自动降到更低档/公共试看 */
+    public volatile boolean allowQualityFallback = false;
     public volatile boolean showTvOverlay = true;
     public volatile boolean tvKeepScreenOn = true;
     public volatile boolean allowTvLocalControl = true;
@@ -57,6 +59,7 @@ public final class DeviceSettings {
         if (o.has("tvKeepScreenOn")) tvKeepScreenOn = o.optBoolean("tvKeepScreenOn", tvKeepScreenOn);
         if (o.has("allowTvLocalControl")) allowTvLocalControl = o.optBoolean("allowTvLocalControl", allowTvLocalControl);
         if (o.has("overlayHideMs")) overlayHideMs = Math.max(1000, o.optInt("overlayHideMs", overlayHideMs));
+        if (o.has("allowQualityFallback")) allowQualityFallback = o.optBoolean("allowQualityFallback", allowQualityFallback);
         if (o.has("preferredQuality")) {
             String q = o.optString("preferredQuality", preferredQuality);
             if (q != null && !q.isEmpty()) preferredQuality = q;
@@ -97,6 +100,7 @@ public final class DeviceSettings {
                 .put("autoNext", autoNext)
                 .put("defaultSpeed", defaultSpeed)
                 .put("preferredQuality", preferredQuality)
+                .put("allowQualityFallback", allowQualityFallback)
                 .put("showTvOverlay", showTvOverlay)
                 .put("tvKeepScreenOn", tvKeepScreenOn)
                 .put("allowTvLocalControl", allowTvLocalControl)

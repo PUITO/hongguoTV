@@ -175,7 +175,14 @@ public final class HongguoClient {
                 try { com.hongguotv.phone.core.AppPlayback.clearIdentity(); } catch (Exception ignored) {}
             }
         }
-        // 2) 公共源兜底
+        // 2) 公共源兜底：仅当用户开启「允许清晰度降级」
+        if (!DeviceSettings.INSTANCE.allowQualityFallback) {
+            String msg = "无 " + pref + " 清晰度（已关闭降级）"
+                    + (appErr != null ? (": " + appErr.getMessage()) : "")
+                    + " last=" + com.hongguotv.phone.core.AppPlayback.lastError();
+            AppLog.w(msg);
+            throw new IllegalStateException(msg);
+        }
         String[] qs = qualityOrder(pref);
         for (String q : qs) {
             String publicUrl = ORIGIN + "/video/public/" + vid + "/" + q + ".mp4";
