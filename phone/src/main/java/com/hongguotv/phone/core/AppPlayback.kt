@@ -46,6 +46,11 @@ object AppPlayback {
     )
     private val VIDEO_TAB get() = VIDEO_TAB_HOSTS[0]
     private val VIDEO_API get() = VIDEO_API_HOSTS[0]
+    private val PLAYER_API_HOSTS = listOf(
+        "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/multi_video_model/player/v1",
+        "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/player/v1",
+        "https://api5-normal-lf.fqnovel.com/novel/player/multi_video_model/player/v1",
+    )
     private val VIDEO_UA =
         "com.phoenix.read/73932 (Linux; U; Android 13; zh_CN; MI 12; Build/TKQ1; Cronet/TTNetVersion:8d40f833 2026-03-03 QuicVersion:c67e9834 2025-09-08)"
 
@@ -54,8 +59,8 @@ object AppPlayback {
         "channel" to "update_64",
         "aid" to "8662",
         "app_name" to "novelread",
-        "version_code" to "73932",
-        "version_name" to "7.3.9.32",
+        "version_code" to "74332",
+        "version_name" to "7.4.3.32",
         "device_platform" to "android",
         "os" to "android",
         "ssmix" to "a",
@@ -64,13 +69,13 @@ object AppPlayback {
         "language" to "zh",
         "os_api" to "36",
         "os_version" to "16",
-        "manifest_version_code" to "73932",
+        "manifest_version_code" to "74332",
         "resolution" to "1280*2772",
         "dpi" to "520",
-        "update_version_code" to "73932",
+        "update_version_code" to "74332",
         "host_abi" to "arm64-v8a",
         "dragon_device_type" to "phone",
-        "pv_player" to "73932",
+        "pv_player" to "74332",
         "compliance_status" to "0",
         "need_personal_recommend" to "1",
         "player_so_load" to "1",
@@ -137,6 +142,21 @@ object AppPlayback {
                 throw e
             }
             AppLog.i("设备#${round + 1} did=${id.deviceId} iid=${id.installId} forceNew=$forceNew")
+
+            // 0 V5 播放签名（对齐 hongguo-drama / N3urda）
+            for (host in PLAYER_API_HOSTS) {
+                try {
+                    val list = fetchV5Post(id, vid, host)
+                    if (list.isNotEmpty()) {
+                        AppLog.i("V5成功 host=${host.substringAfter("https://").substringBefore("/")} streams=${list.size} q=${list.first().quality}")
+                        return list
+                    }
+                    errors += "V5空@${host.substringAfter("https://").substringBefore("/")}"
+                } catch (e: Exception) {
+                    errors += "V5:${e.message}"
+                    AppLog.w("V5 失败 ${host.substringAfter("https://").substringBefore("/")}: ${e.message}")
+                }
+            }
 
             // 1 TAB GET — 多域名
             for (host in VIDEO_TAB_HOSTS) {
@@ -258,8 +278,8 @@ object AppPlayback {
             "aid" to "8662",
             "channel" to "update_64",
             "package" to "com.phoenix.read",
-            "app_version" to "7.3.9.32",
-            "version_code" to "73932",
+            "app_version" to "7.4.3.32",
+            "version_code" to "74332",
             "user_agent" to VIDEO_UA,
         )
         val body = DeviceRegister.payload(device)
@@ -287,6 +307,76 @@ object AppPlayback {
         }
         AppLog.i("注册成功 did=${registered.deviceId} iid=${registered.installId} new=${registered.newUser} cookies=${registered.cookies.keys}")
         return Identity(registered.deviceId, registered.installId, cdid, registered.cookies)
+    }
+
+
+    /** V5 签名取流（x-medusa / x-helios），与 hongguo-drama playback-v5 / N3urda Signer 对齐 */
+    private fun fetchV5Post(id: Identity, vid: String, baseUrl: String): List<Stream> {
+        val now = System.currentTimeMillis()
+        val payload = JSONObject()
+            .put(
+                "biz_param",
+                JSONObject()
+                    .put("detail_page_version", 0)
+                    .put("device_level", 1) // 1 协商兼容码流，避免只返回 bytevc2
+                    .put("disable_digg_stat", false)
+                    .put("disable_video_relate_book", false)
+                    .put("need_all_video_definition", true)
+                    .put("need_mp4_align", false)
+                    .put("use_os_player", false)
+                    .put("use_server_dns", false)
+                    .put("video_platform", 1024),
+            )
+            .put("mixed_video_id_map", JSONObject().put("1004", JSONArray().put(vid)))
+            .put("dr_scene", "player")
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+        val body = gzip(payload)
+        val values = linkedMapOf(
+            "aid" to "8662",
+            "app_name" to "novelread",
+            "version_code" to "74332",
+            "version_name" to "7.4.3.32",
+            "channel" to "vivo_8662_64",
+            "device_platform" to "android",
+            "device_type" to "PGT-AN10",
+            "os_version" to "12",
+            "update_version_code" to "74332",
+            "iid" to id.installId,
+            "cdid" to id.cdid,
+            "device_id" to id.deviceId,
+            "_rticket" to now.toString(),
+        )
+        val signer = Signer(mobileV5 = true)
+        val signed = signer.signPlayback(baseUrl, values, body, now)
+        AppLog.i("V5 签名 medusaLen=${signed.headers["x-medusa"]?.length ?: 0} helios=${signed.headers["x-helios"]?.take(16)}")
+        val headers = linkedMapOf(
+            "User-Agent" to "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)",
+            "Accept" to "application/json",
+            "Content-Type" to "application/json; charset=utf-8",
+            "Content-Encoding" to "gzip",
+            "x-ss-stub" to digest("MD5", body).hex().uppercase(),
+            "sdk-version" to "2",
+            "x-xs-from-web" to "0",
+            "passport-sdk-version" to "5051452",
+            "x-ss-dp" to "8662",
+            "x-tt-store-region" to "cn",
+            "x-tt-store-region-src" to "did",
+            "Connection" to "close",
+        )
+        cookieHeader(id)?.let { headers["Cookie"] = it }
+        headers.putAll(signed.headers)
+        val conn = open(signed.url, "POST", headers, closeConn = true)
+        conn.outputStream.use { it.write(body) }
+        val code = conn.responseCode
+        val text = readBody(conn)
+        AppLog.i("V5 HTTP $code hdrs=${headerSummary(conn)} len=${text.length} body=${AppLog.clip(text, 220)}")
+        if (code >= 400) throw IllegalStateException("HTTP $code")
+        if (text.isBlank()) throw IllegalStateException("empty body")
+        val root = JSONObject(text)
+        val biz = root.optInt("code", root.optInt("Code", 0))
+        if (biz != 0) throw IllegalStateException("code $biz")
+        return parseStreams(root)
     }
 
     private fun fetchTabGet(id: Identity, vid: String, closeConn: Boolean, baseUrl: String = VIDEO_TAB): List<Stream> {
@@ -341,8 +431,9 @@ object AppPlayback {
                 "biz_param",
                 JSONObject()
                     .put("detail_page_version", 0)
-                    .put("device_level", 3)
+                    .put("device_level", 1)
                     .put("disable_digg_stat", false)
+                    .put("disable_video_relate_book", false)
                     .put("need_all_video_definition", true)
                     .put("need_mp4_align", false)
                     .put("use_os_player", false)
@@ -350,6 +441,7 @@ object AppPlayback {
                     .put("video_platform", 1024),
             )
             .put("mixed_video_id_map", JSONObject().put("1004", JSONArray().put(vid)))
+            .put("dr_scene", "player")
             .toString()
         val raw = payload.toByteArray(Charsets.UTF_8)
         val body = if (gzip) gzip(raw) else raw
