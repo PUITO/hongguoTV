@@ -104,4 +104,36 @@ public final class AppPlayClient {
         }
         throw last != null ? last : new IllegalStateException("app play empty");
     }
+
+    private static int heightWanted(String preferred) {
+        if (preferred == null) return 1080;
+        if (preferred.contains("360")) return 360;
+        if (preferred.contains("480")) return 480;
+        if (preferred.contains("540")) return 540;
+        if (preferred.contains("720")) return 720;
+        if (preferred.contains("1080")) return 1080;
+        return 1080;
+    }
+
+    private static boolean matchesPreferred(AppPlayback.Stream s, String preferred, int wantH) {
+        String q = (s.getQuality() == null ? "" : s.getQuality()).toLowerCase();
+        String pref = preferred == null ? "" : preferred.toLowerCase();
+        if (pref.contains("1080") && (q.contains("1080") || s.getHeight() >= 900)) return true;
+        if (pref.contains("720") && (q.contains("720") || (s.getHeight() >= 600 && s.getHeight() < 900))) return true;
+        if (pref.contains("540") && (q.contains("540") || (s.getHeight() >= 500 && s.getHeight() < 600))) return true;
+        if (pref.contains("480") && (q.contains("480") || (s.getHeight() >= 400 && s.getHeight() < 500))) return true;
+        if (pref.contains("360") && (q.contains("360") || (s.getHeight() > 0 && s.getHeight() < 400))) return true;
+        int h = s.getHeight();
+        if (h <= 0) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{3,4})").matcher(q);
+            if (m.find()) {
+                try { h = Integer.parseInt(m.group(1)); } catch (Exception ignored) {}
+            }
+        }
+        if (h <= 0) return false;
+        if (wantH >= 1080) return h >= 900;
+        if (wantH >= 720) return h >= 600 && h < 900;
+        if (wantH >= 480) return h >= 400 && h < 600;
+        return h < 400;
+    }
 }
