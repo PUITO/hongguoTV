@@ -34,10 +34,18 @@ object AppPlayback {
         val codec: String = "",
     )
 
-    private val VIDEO_TAB =
-        "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/"
-    private val VIDEO_API =
-        "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/"
+    private val VIDEO_TAB_HOSTS = listOf(
+        "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/",
+        "https://api5-normal-lf.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/",
+        "https://api5-normal-sinfonlinec.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/",
+    )
+    private val VIDEO_API_HOSTS = listOf(
+        "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/",
+        "https://api5-normal-lf.fqnovel.com/novel/player/multi_video_model/v1/",
+        "https://api5-normal-sinfonlinec.fqnovel.com/novel/player/multi_video_model/v1/",
+    )
+    private val VIDEO_TAB get() = VIDEO_TAB_HOSTS[0]
+    private val VIDEO_API get() = VIDEO_API_HOSTS[0]
     private val VIDEO_UA =
         "com.phoenix.read/73932 (Linux; U; Android 13; zh_CN; MI 12; Build/TKQ1; Cronet/TTNetVersion:8d40f833 2026-03-03 QuicVersion:c67e9834 2025-09-08)"
 
