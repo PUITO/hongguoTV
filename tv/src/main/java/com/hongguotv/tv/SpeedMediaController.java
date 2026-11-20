@@ -16,14 +16,16 @@ import android.widget.TextView;
 import java.util.Locale;
 
 /**
- * 系统 MediaController + 播放器内置倍速控件（非独立底部按钮条）。
+ * 系统 MediaController + 播放器内置倍速（点按切换；上下键加减）。
  */
 public class SpeedMediaController extends MediaController {
     public interface OnSpeedChangeListener {
         void onSpeedSelected(float speed);
     }
 
-    private static final float[] STEPS = {0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.25f, 2.5f, 2.75f, 3.0f};
+    private static final float[] STEPS = {
+            0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.25f, 2.5f, 2.75f, 3.0f
+    };
 
     private TextView speedView;
     private float speed = 1.5f;
@@ -65,12 +67,10 @@ public class SpeedMediaController extends MediaController {
             return;
         }
         try {
-            // MediaController 根是 FrameLayout，内部为控制条 LinearLayout
             if (getChildCount() == 0) return;
             View root = getChildAt(0);
             LinearLayout bar = findControlBar(root);
             if (bar == null) {
-                // 找不到时挂到根
                 if (root instanceof ViewGroup) {
                     bar = new LinearLayout(getContext());
                     bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -93,7 +93,7 @@ public class SpeedMediaController extends MediaController {
             speedView.setFocusable(true);
             speedView.setClickable(true);
             speedView.setContentDescription("播放倍速");
-            speedView.setOnClickListener(v -> cycleSpeed());
+            speedView.setOnClickListener(v -> stepSpeed(true));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -104,26 +104,37 @@ public class SpeedMediaController extends MediaController {
         } catch (Exception ignored) {}
     }
 
-    private void cycleSpeed() {
+    /** forward=true 加快，false 减慢；到边界停止 */
+    public void stepSpeed(boolean forward) {
+        int idx = nearestIndex(speed);
+        if (forward) {
+            if (idx < STEPS.length - 1) idx++;
+        } else {
+            if (idx > 0) idx--;
+        }
+        float next = STEPS[idx];
+        if (Math.abs(next - speed) < 0.01f) return;
+        speed = next;
+        setSpeedLabel(speed);
+        if (listener != null) listener.onSpeedSelected(speed);
+    }
+
+    private static int nearestIndex(float s) {
         int idx = 0;
         float best = Float.MAX_VALUE;
         for (int i = 0; i < STEPS.length; i++) {
-            float d = Math.abs(STEPS[i] - speed);
+            float d = Math.abs(STEPS[i] - s);
             if (d < best) {
                 best = d;
                 idx = i;
             }
         }
-        idx = (idx + 1) % STEPS.length;
-        speed = STEPS[idx];
-        setSpeedLabel(speed);
-        if (listener != null) listener.onSpeedSelected(speed);
+        return idx;
     }
 
     private static LinearLayout findControlBar(View root) {
         if (root instanceof LinearLayout) {
             LinearLayout ll = (LinearLayout) root;
-            // 横向控制条通常子节点较多
             if (ll.getOrientation() == LinearLayout.HORIZONTAL && ll.getChildCount() >= 2) {
                 return ll;
             }
@@ -152,7 +163,23 @@ public class SpeedMediaController extends MediaController {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        // 让 Activity 处理上下键切倍速；其余交给控制器
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            int code = event.getKeyCode();
+            if (code == KeyEvent.KEYCODE_DPAD_UP
+                    || code == KeyEvent.KEYCODE_CHANNEL_UP
+                    || code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+                stepSpeed(true);
+                show();
+                return true;
+            }
+            if (code == KeyEvent.KEYCODE_DPAD_DOWN
+                    || code == KeyEvent.KEYCODE_CHANNEL_DOWN
+                    || code == KeyEvent.KEYCODE_MEDIA_REWIND) {
+                stepSpeed(false);
+                show();
+                return true;
+            }
+        }
         return super.dispatchKeyEvent(event);
     }
 }

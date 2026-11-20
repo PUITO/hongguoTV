@@ -18,6 +18,26 @@ public final class NowPlaying {
     public volatile long seekMs = -1;
     public volatile long commandId = 0;
     public volatile String seriesId = "";
+    public volatile String seriesTitle = "";
+    public volatile String seriesCover = "";
+    private android.content.Context appCtx;
+
+    public void attachContext(android.content.Context ctx) {
+        if (ctx != null) appCtx = ctx.getApplicationContext();
+    }
+
+    /** 推送/联播切集后写回手机历史，避免只推 TV 导致历史丢集数 */
+    private void syncHistory() {
+        if (appCtx == null) return;
+        if (seriesId == null || seriesId.isEmpty()) return;
+        if (index < 0) return;
+        try {
+            WatchHistory.updateProgress(appCtx, seriesId, index, seriesTitle, seriesCover);
+            AppLog.i("历史同步 series=" + seriesId + " ep=" + (index + 1));
+        } catch (Exception e) {
+            AppLog.w("历史同步失败: " + e.getMessage());
+        }
+    }
 
     public String playUrlForTv(String phoneIp, int port) {
         if (sourceUrl == null || sourceUrl.isEmpty()) return "";
@@ -44,6 +64,7 @@ public final class NowPlaying {
         this.seekMs = -1;
         this.speed = DeviceSettings.INSTANCE.defaultSpeed;
         bump();
+        syncHistory();
     }
 
     public synchronized void setPlaylist(JSONArray list, int startIndex) {
@@ -52,6 +73,18 @@ public final class NowPlaying {
             for (int i = 0; i < list.length(); i++) playlist.put(list.opt(i));
         }
         index = Math.max(0, Math.min(startIndex, Math.max(0, playlist.length() - 1)));
+        if (playlist.length() > 0) {
+            JSONObject first = playlist.optJSONObject(Math.max(0, index));
+            if (first != null) {
+                if (seriesId == null || seriesId.isEmpty()) {
+                    seriesId = first.optString("seriesId", "");
+                }
+                String st = first.optString("seriesTitle", "");
+                if (!st.isEmpty()) seriesTitle = st;
+                String cv = first.optString("cover", "");
+                if (!cv.isEmpty()) seriesCover = cv;
+            }
+        }
         applyIndex();
     }
 
@@ -62,11 +95,18 @@ public final class NowPlaying {
         sourceUrl = item.optString("url", "");
         title = item.optString("title", "");
         seriesId = item.optString("seriesId", seriesId);
+        if (seriesTitle == null || seriesTitle.isEmpty()) {
+            seriesTitle = item.optString("seriesTitle", "");
+        }
+        if (seriesCover == null || seriesCover.isEmpty()) {
+            seriesCover = item.optString("cover", "");
+        }
         updatedAt = System.currentTimeMillis();
         playing = true;
         seekMs = 0;
-        speed = DeviceSettings.INSTANCE.defaultSpeed;
+        // 切集保持当前倍速
         bump();
+        syncHistory();
     }
 
     public synchronized boolean next() {

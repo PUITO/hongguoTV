@@ -72,9 +72,9 @@ public class PlayerActivity extends Activity {
         @Override public void run() {
             if (destroyed) return;
             if (prepared && mediaPlayer != null) {
-                applySpeed(currentSpeed, false);
+                applySpeedOnce(currentSpeed);
             }
-            if (!destroyed) ui.postDelayed(this, 4000);
+            if (!destroyed) ui.postDelayed(this, 2500);
         }
     };
 
@@ -326,29 +326,60 @@ public class PlayerActivity extends Activity {
         if (speed < 0.75f) speed = 0.75f;
         if (speed > 3.0f) speed = 3.0f;
         currentSpeed = speed;
-        if (Build.VERSION.SDK_INT < 23) return;
-        if (mediaPlayer == null) return;
-        try {
-            PlaybackParams params;
-            try {
-                params = mediaPlayer.getPlaybackParams();
-            } catch (Exception e) {
-                params = new PlaybackParams();
-            }
-            params.setSpeed(speed);
-            try { params.setPitch(1.0f); } catch (Exception ignored) {}
-            mediaPlayer.setPlaybackParams(params);
-        } catch (Exception e) {
-            try {
-                PlaybackParams params = new PlaybackParams();
-                params.setSpeed(speed);
-                // 部分盒子 VideoView 直接支持 setPlaybackParams
-                video.getClass().getMethod("setPlaybackParams", PlaybackParams.class)
-                        .invoke(video, params);
-            } catch (Exception ignored) {}
-        }
         if (controller != null) {
             try { controller.setSpeedLabel(speed); } catch (Exception ignored) {}
+        }
+        if (Build.VERSION.SDK_INT < 23) return;
+        // 立刻 + 延迟重试（部分盒子 onPrepared 后立刻 set 会被吞掉）
+        applySpeedOnce(speed);
+        ui.removeCallbacks(speedRetry1);
+        ui.removeCallbacks(speedRetry2);
+        ui.postDelayed(speedRetry1, 200);
+        ui.postDelayed(speedRetry2, 800);
+    }
+
+    private final Runnable speedRetry1 = () -> applySpeedOnce(currentSpeed);
+    private final Runnable speedRetry2 = () -> applySpeedOnce(currentSpeed);
+
+    private void applySpeedOnce(float speed) {
+        if (Build.VERSION.SDK_INT < 23) return;
+        PlaybackParams params = new PlaybackParams();
+        try {
+            params.setSpeed(speed);
+            params.setPitch(1.0f);
+        } catch (Exception ignored) {}
+        boolean ok = false;
+        if (mediaPlayer != null) {
+            try {
+                // 必须在 started 状态才稳
+                try {
+                    if (!mediaPlayer.isPlaying()) {
+                        mediaPlayer.start();
+                    }
+                } catch (Exception ignored) {}
+                mediaPlayer.setPlaybackParams(params);
+                ok = true;
+                // 校验
+                try {
+                    float actual = mediaPlayer.getPlaybackParams().getSpeed();
+                    if (Math.abs(actual - speed) > 0.08f) ok = false;
+                } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+        }
+        if (!ok && video != null) {
+            try {
+                video.getClass().getMethod("setPlaybackParams", PlaybackParams.class)
+                        .invoke(video, params);
+                ok = true;
+            } catch (Exception ignored) {}
+        }
+        // 再试一次：从当前 params 改 speed
+        if (!ok && mediaPlayer != null) {
+            try {
+                PlaybackParams cur = mediaPlayer.getPlaybackParams();
+                cur.setSpeed(speed);
+                mediaPlayer.setPlaybackParams(cur);
+            } catch (Exception ignored) {}
         }
     }
 
@@ -510,6 +541,8 @@ public class PlayerActivity extends Activity {
         ui.removeCallbacks(poll);
         ui.removeCallbacks(hideOverlay);
         ui.removeCallbacks(reapplySpeed);
+        ui.removeCallbacks(speedRetry1);
+        ui.removeCallbacks(speedRetry2);
         mediaPlayer = null;
         net.shutdownNow();
         super.onDestroy();

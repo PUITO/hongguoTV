@@ -130,11 +130,15 @@ public class SeriesDetailActivity extends Activity {
                         try {
                             // 有序全列表：每集带 vid，联播切集时按 preferredQuality 重解析
                             JSONArray pl = new JSONArray();
+                            String seriesTitle = detail.optString("title");
+                            String seriesCover = detail.optString("cover");
                             for (int i = 0; i < eps.length(); i++) {
                                 JSONObject e = eps.getJSONObject(i);
                                 JSONObject item = new JSONObject()
-                                        .put("title", detail.optString("title") + " 第" + (i + 1) + "集")
+                                        .put("title", seriesTitle + " 第" + (i + 1) + "集")
                                         .put("seriesId", seriesId)
+                                        .put("seriesTitle", seriesTitle)
+                                        .put("cover", seriesCover)
                                         .put("vid", e.optString("vid"))
                                         .put("episode", i + 1);
                                 if (i == idx) {
@@ -149,6 +153,9 @@ public class SeriesDetailActivity extends Activity {
                                 }
                                 pl.put(item);
                             }
+                            CastServerService.NOW.seriesId = seriesId;
+                            CastServerService.NOW.seriesTitle = seriesTitle;
+                            CastServerService.NOW.seriesCover = seriesCover;
                             CastServerService.NOW.setPlaylist(pl, idx);
                             // TV 只收手机流：强制 source 为明文路径，TV 播 http://phone:8765/stream/current
                             CastServerService.NOW.sourceUrl = fUrl;

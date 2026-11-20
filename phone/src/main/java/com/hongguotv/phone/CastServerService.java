@@ -24,6 +24,7 @@ public class CastServerService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        NOW.attachContext(this);
         INSTANCE = this;
         CACHE = new MediaCache(this);
     }
