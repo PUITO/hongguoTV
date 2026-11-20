@@ -4,13 +4,12 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
-    <VideoView
-        android:id="@+id/video"
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/playerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_gravity="center" />
 
-    <!-- 仅标题信息，无底部按钮；倍速在系统 MediaController 上 -->
     <LinearLayout
         android:id="@+id/overlay"
         android:orientation="vertical"
@@ -32,11 +31,12 @@
             android:layout_height="wrap_content"
             android:textColor="@color/tv_text_dim"
             android:textSize="14sp" />
+        <TextView
+            android:id="@+id/speedHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/tv_accent"
+            android:textSize="16sp"
+            android:text="上/下键调节倍速 · 确认显示控制条" />
     </LinearLayout>
-
-    <!-- 保留 id 以免旧代码 NPE，全部 gone -->
-    <Button android:id="@+id/btnPrev" android:visibility="gone" android:layout_width="0dp" android:layout_height="0dp" />
-    <Button android:id="@+id/btnNext" android:visibility="gone" android:layout_width="0dp" android:layout_height="0dp" />
-    <Button android:id="@+id/btnPlayPause" android:visibility="gone" android:layout_width="0dp" android:layout_height="0dp" />
-    <Button android:id="@+id/btnSpeed" android:visibility="gone" android:layout_width="0dp" android:layout_height="0dp" />
 </FrameLayout>

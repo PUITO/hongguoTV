@@ -57,6 +57,46 @@
             android:layout_marginTop="8dp"
             android:text="重新检测 IP" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="默认播放倍速（仅本机）"
+            android:textColor="@color/tv_text"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+        <TextView
+            android:id="@+id/speedLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/tv_accent"
+            android:textSize="18sp"
+            android:text="当前默认：1.0x" />
+        <LinearLayout
+            android:id="@+id/speedGroup"
+            android:orientation="horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp">
+            <Button android:id="@+id/btnSp075" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="0.75" android:layout_marginEnd="4dp" />
+            <Button android:id="@+id/btnSp10" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="1.0" android:layout_marginEnd="4dp" />
+            <Button android:id="@+id/btnSp15" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="1.5" android:layout_marginEnd="4dp" />
+            <Button android:id="@+id/btnSp20" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="2.0" android:layout_marginEnd="4dp" />
+            <Button android:id="@+id/btnSp30" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="3.0" />
+        </LinearLayout>
+        <Button
+            android:id="@+id/btnTvLogs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="查看运行日志（倍速诊断）" />
+
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"

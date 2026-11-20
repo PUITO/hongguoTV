@@ -1,21 +1,21 @@
 package com.hongguotv.tv;
 
 import android.app.Activity;
-import android.media.MediaPlayer;
-import android.media.PlaybackParams;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.widget.VideoView;
+
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 import com.hongguotv.shared.CastProtocol;
 
@@ -32,6 +32,9 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * TV 播放：ExoPlayer（支持 0.75–3x 倍速；VideoView/MediaPlayer 在多数盒子上无效）。
+ */
 public class PlayerActivity extends Activity {
     public static final String EXTRA_URL = "url";
     public static final String EXTRA_TITLE = "title";
@@ -39,13 +42,14 @@ public class PlayerActivity extends Activity {
     public static final String EXTRA_PHONE_PORT = "phone_port";
     public static final String EXTRA_PAIR = "pair";
 
-    private static final float[] SPEED_STEPS = {0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.25f, 2.5f, 2.75f, 3.0f};
+    private static final float[] SPEED_STEPS = {
+            0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.25f, 2.5f, 2.75f, 3.0f
+    };
 
-    private VideoView video;
-    private TextView titleView, meta;
+    private PlayerView playerView;
+    private ExoPlayer player;
+    private TextView titleView, meta, speedHint;
     private View overlay;
-    private SpeedMediaController controller;
-    private MediaPlayer mediaPlayer;
     private String phoneIp, pair;
     private int phonePort;
     private long lastCommandId = -1;
@@ -58,24 +62,12 @@ public class PlayerActivity extends Activity {
     private boolean allowLocalControl = true;
     private boolean showOverlayPref = true;
     private int overlayHideMs = 5000;
-    private boolean prepared;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     private boolean destroyed;
 
     private final Runnable hideOverlay = () -> {
         if (overlay != null && showOverlayPref) overlay.setVisibility(View.GONE);
-    };
-
-    /** 部分机顶盒会丢掉 PlaybackParams，播放中周期性重设 */
-    private final Runnable reapplySpeed = new Runnable() {
-        @Override public void run() {
-            if (destroyed) return;
-            if (prepared && mediaPlayer != null) {
-                applySpeedOnce(currentSpeed);
-            }
-            if (!destroyed) ui.postDelayed(this, 2500);
-        }
     };
 
     private final Runnable poll = new Runnable() {
@@ -86,7 +78,9 @@ public class PlayerActivity extends Activity {
                     JSONObject st = httpGet(
                             "http://" + phoneIp + ":" + phonePort + CastProtocol.PATH_CONTROL, pair);
                     ui.post(() -> applyState(st));
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    TvLog.w("poll: " + e.getMessage());
+                }
                 if (!destroyed) ui.postDelayed(this, 800);
             });
         }
@@ -96,9 +90,10 @@ public class PlayerActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_player);
-        video = findViewById(R.id.video);
+        playerView = findViewById(R.id.playerView);
         titleView = findViewById(R.id.title);
         meta = findViewById(R.id.meta);
+        speedHint = findViewById(R.id.speedHint);
         overlay = findViewById(R.id.overlay);
         phoneIp = getIntent().getStringExtra(EXTRA_PHONE_IP);
         phonePort = getIntent().getIntExtra(EXTRA_PHONE_PORT, CastProtocol.DEFAULT_PORT);
@@ -107,117 +102,51 @@ public class PlayerActivity extends Activity {
         String t = getIntent().getStringExtra(EXTRA_TITLE);
         titleView.setText(t == null || t.isEmpty() ? "播放中" : t);
 
-        // 隐藏旧底部按钮条，倍速只走 MediaController
-        hideLegacyButtons();
+        currentSpeed = TvPrefs.defaultSpeed(this);
+        TvLog.i("Player 启动 defaultSpeed=" + currentSpeed + " url=" + clip(url));
 
-        controller = new SpeedMediaController(this);
-        controller.setAnchorView(video);
-        controller.setMediaPlayer(video);
-        controller.setOnSpeedChangeListener(speed -> {
-            currentSpeed = speed;
-            applySpeed(speed, true);
-            // 仅 TV 本机倍速，不同步手机
-            Toast.makeText(this, "倍速 " + speed + "x", Toast.LENGTH_SHORT).show();
-            updateMetaSpeed();
-        });
-        video.setMediaController(controller);
-        controller.setSpeedLabel(currentSpeed);
-
-        video.setOnErrorListener((mp, what, extra) -> {
-            Toast.makeText(this, "播放失败 " + what + "/" + extra, Toast.LENGTH_LONG).show();
-            return true;
-        });
-        video.setOnCompletionListener(mp -> {
-            try {
-                postControlJson(new JSONObject().put("action", "next").put("fromComplete", true));
-            } catch (Exception ignored) {}
-        });
-        video.setOnPreparedListener(mp -> {
-            mediaPlayer = mp;
-            prepared = true;
-            try {
-                int vw = mp.getVideoWidth();
-                int vh = mp.getVideoHeight();
-                int dur = mp.getDuration();
-                if (vw > 0 && vh > 0) fitVideoView(vw, vh);
-                try {
-                    mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
-                } catch (Exception ignored) {}
-                if (meta != null) {
-                    if (dur <= 0) {
-                        meta.setText(String.format(Locale.US, "倍速 %.2fx", currentSpeed));
-                    } else {
-                        meta.setText(String.format(Locale.US, "倍速 %.2fx · %d秒 · %dx%d",
-                                currentSpeed, dur / 1000, vw, vh));
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
+        playerView.setUseController(true);
+        playerView.setControllerShowTimeoutMs(overlayHideMs);
+        player.setPlaybackSpeed(currentSpeed);
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) {
+                    float actual = player.getPlaybackParameters().speed;
+                    TvLog.i("STATE_READY actualSpeed=" + actual + " target=" + currentSpeed);
+                    if (Math.abs(actual - currentSpeed) > 0.05f) {
+                        player.setPlaybackSpeed(currentSpeed);
+                        TvLog.w("READY 后重设倍速 -> " + currentSpeed);
                     }
+                    updateMeta();
                 }
-            } catch (Exception ignored) {}
-            // prepared 后必须再设倍速
-            applySpeed(currentSpeed, true);
-            try {
-                if (!video.isPlaying()) video.start();
-            } catch (Exception ignored) {}
-            try {
-                controller.setSpeedLabel(currentSpeed);
-                controller.show(overlayHideMs);
-            } catch (Exception ignored) {}
-            showTitleOverlay();
+            }
+
+            @Override
+            public void onPlayerError(PlaybackException error) {
+                TvLog.e("播放错误: " + error.getErrorCodeName() + " " + error.getMessage());
+                Toast.makeText(PlayerActivity.this,
+                        "播放失败: " + error.getErrorCodeName(), Toast.LENGTH_LONG).show();
+            }
         });
 
-        // 点击画面显示系统控制器（含倍速）
-        video.setOnClickListener(v -> {
-            try { controller.show(overlayHideMs); } catch (Exception ignored) {}
-            showTitleOverlay();
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int playbackState) {
+                if (playbackState == Player.STATE_ENDED) {
+                    TvLog.i("播放完成 -> next");
+                    try {
+                        postControlJson(new JSONObject().put("action", "next").put("fromComplete", true));
+                    } catch (Exception ignored) {}
+                }
+            }
         });
 
         if (url != null && !url.isEmpty()) playUrl(url);
         ui.post(poll);
-        ui.postDelayed(reapplySpeed, 4000);
-    }
-
-    private void hideLegacyButtons() {
-        int[] ids = {R.id.btnPrev, R.id.btnNext, R.id.btnPlayPause, R.id.btnSpeed};
-        for (int id : ids) {
-            View b = findViewById(id);
-            if (b != null) b.setVisibility(View.GONE);
-        }
-        // 整行按钮容器
-        View overlay = findViewById(R.id.overlay);
-        if (overlay instanceof android.view.ViewGroup) {
-            android.view.ViewGroup vg = (android.view.ViewGroup) overlay;
-            for (int i = 0; i < vg.getChildCount(); i++) {
-                View child = vg.getChildAt(i);
-                if (child instanceof android.widget.LinearLayout) {
-                    android.widget.LinearLayout ll = (android.widget.LinearLayout) child;
-                    if (ll.getChildCount() >= 3) {
-                        // 可能是按钮行
-                        boolean allButtons = true;
-                        for (int j = 0; j < ll.getChildCount(); j++) {
-                            if (!(ll.getChildAt(j) instanceof android.widget.Button)) {
-                                allButtons = false;
-                                break;
-                            }
-                        }
-                        if (allButtons) ll.setVisibility(View.GONE);
-                    }
-                }
-            }
-        }
-    }
-
-    private void showTitleOverlay() {
-        if (!showOverlayPref || overlay == null) return;
-        // 只显示标题/meta，不显示按钮
-        overlay.setVisibility(View.VISIBLE);
-        ui.removeCallbacks(hideOverlay);
-        ui.postDelayed(hideOverlay, overlayHideMs);
-    }
-
-    private void updateMetaSpeed() {
-        if (meta == null) return;
-        String base = meta.getText() == null ? "" : meta.getText().toString();
-        // 简单重写
-        meta.setText(String.format(Locale.US, "倍速 %.2fx", currentSpeed));
+        showTitleOverlay();
     }
 
     private void applySettings(JSONObject settings) {
@@ -232,7 +161,9 @@ public class PlayerActivity extends Activity {
         if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (!showOverlayPref && overlay != null) overlay.setVisibility(View.GONE);
-        // 倍速仅 TV 播放器本地控制
+        try {
+            playerView.setControllerShowTimeoutMs(overlayHideMs);
+        } catch (Exception ignored) {}
     }
 
     private void applyState(JSONObject st) {
@@ -248,11 +179,7 @@ public class PlayerActivity extends Activity {
         String mode = st.optString("playMode", CastProtocol.MODE_PROXY);
 
         if (title != null && !title.isEmpty()) titleView.setText(title);
-        if (meta != null) {
-            meta.setText(String.format(Locale.US, "第%d/%d · %.2fx · %s",
-                    index + 1, Math.max(pl, 1), currentSpeed,
-                    CastProtocol.MODE_DIRECT.equals(mode) ? "直链" : "推流"));
-        }
+        updateMeta(index, pl, mode);
 
         long updated = st.optLong("updatedAt", 0);
         boolean urlChanged = url != null && !url.isEmpty() && !url.equals(currentUrl);
@@ -263,117 +190,71 @@ public class PlayerActivity extends Activity {
             playUrl(url);
         }
 
-        // 倍速仅 TV 本机控制，不跟随手机 NOW.speed
-
         if (cmd != lastCommandId) {
             lastCommandId = cmd;
             if (index != lastIndex && url != null && !url.isEmpty()) {
                 lastIndex = index;
                 lastUpdatedAt = updated;
                 playUrl(url);
-            } else if (seekMs > 0) {
-                try { video.seekTo((int) seekMs); } catch (Exception ignored) {}
-            } else if (seekMs == 0 && prepared) {
-                try { video.seekTo(0); } catch (Exception ignored) {}
+            } else if (seekMs > 0 && player != null) {
+                try { player.seekTo(seekMs); } catch (Exception ignored) {}
+            } else if (seekMs == 0 && player != null) {
+                try { player.seekTo(0); } catch (Exception ignored) {}
             }
             try {
-                if (playing) {
-                    if (!video.isPlaying()) video.start();
-                } else {
-                    if (video.isPlaying()) video.pause();
+                if (player != null) {
+                    if (playing) player.play();
+                    else player.pause();
                 }
             } catch (Exception ignored) {}
-            // 命令变化后再强制倍速（换集/起播）
-            applySpeed(currentSpeed, true);
-            if (controller != null) controller.setSpeedLabel(currentSpeed);
+            // 换集后保持本机倍速
+            applyLocalSpeed(currentSpeed, "command");
         }
     }
 
     private void playUrl(String url) {
-        if (url == null || url.isEmpty()) return;
+        if (url == null || url.isEmpty() || player == null) return;
         currentUrl = url;
-        prepared = false;
-        mediaPlayer = null;
+        TvLog.i("playUrl " + clip(url));
         try {
-            video.stopPlayback();
-        } catch (Exception ignored) {}
-        try {
-            video.setVideoURI(Uri.parse(url));
-            video.requestFocus();
-            video.start();
+            player.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
+            player.prepare();
+            player.setPlaybackSpeed(currentSpeed);
+            player.play();
             showTitleOverlay();
-            if (meta != null) meta.setText("加载中…");
-            try { controller.show(overlayHideMs); } catch (Exception ignored) {}
+            if (meta != null) meta.setText("加载中… · " + formatSpeed(currentSpeed));
         } catch (Exception e) {
+            TvLog.e("打开流失败: " + e.getMessage());
             Toast.makeText(this, "打开流失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
-    /**
-     * @param force  true 时即使与记录相同也再 set 一次
-     */
-    private void applySpeed(float speed, boolean force) {
+    private void applyLocalSpeed(float speed, String reason) {
         if (speed < 0.75f) speed = 0.75f;
         if (speed > 3.0f) speed = 3.0f;
         currentSpeed = speed;
-        if (controller != null) {
-            try { controller.setSpeedLabel(speed); } catch (Exception ignored) {}
-        }
-        if (Build.VERSION.SDK_INT < 23) return;
-        // 立刻 + 延迟重试（部分盒子 onPrepared 后立刻 set 会被吞掉）
-        applySpeedOnce(speed);
-        ui.removeCallbacks(speedRetry1);
-        ui.removeCallbacks(speedRetry2);
-        ui.postDelayed(speedRetry1, 200);
-        ui.postDelayed(speedRetry2, 800);
-    }
-
-    private final Runnable speedRetry1 = () -> applySpeedOnce(currentSpeed);
-    private final Runnable speedRetry2 = () -> applySpeedOnce(currentSpeed);
-
-    private void applySpeedOnce(float speed) {
-        if (Build.VERSION.SDK_INT < 23) return;
-        PlaybackParams params = new PlaybackParams();
-        try {
-            params.setSpeed(speed);
-            params.setPitch(1.0f);
-        } catch (Exception ignored) {}
-        boolean ok = false;
-        if (mediaPlayer != null) {
+        if (player != null) {
             try {
-                // 必须在 started 状态才稳
-                try {
-                    if (!mediaPlayer.isPlaying()) {
-                        mediaPlayer.start();
-                    }
-                } catch (Exception ignored) {}
-                mediaPlayer.setPlaybackParams(params);
-                ok = true;
-                // 校验
-                try {
-                    float actual = mediaPlayer.getPlaybackParams().getSpeed();
-                    if (Math.abs(actual - speed) > 0.08f) ok = false;
-                } catch (Exception ignored) {}
-            } catch (Exception ignored) {}
+                player.setPlaybackSpeed(speed);
+                float actual = player.getPlaybackParameters().speed;
+                TvLog.i("setSpeed reason=" + reason + " target=" + speed + " actual=" + actual);
+                if (Math.abs(actual - speed) > 0.08f) {
+                    TvLog.w("倍速未对齐 actual=" + actual);
+                    Toast.makeText(this, "倍速可能未生效 actual=" + actual, Toast.LENGTH_SHORT).show();
+                }
+            } catch (Exception e) {
+                TvLog.e("setPlaybackSpeed 失败: " + e.getMessage());
+                Toast.makeText(this, "倍速设置失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        } else {
+            TvLog.w("setSpeed 时 player=null");
         }
-        if (!ok && video != null) {
-            try {
-                video.getClass().getMethod("setPlaybackParams", PlaybackParams.class)
-                        .invoke(video, params);
-                ok = true;
-            } catch (Exception ignored) {}
-        }
-        // 再试一次：从当前 params 改 speed
-        if (!ok && mediaPlayer != null) {
-            try {
-                PlaybackParams cur = mediaPlayer.getPlaybackParams();
-                cur.setSpeed(speed);
-                mediaPlayer.setPlaybackParams(cur);
-            } catch (Exception ignored) {}
+        updateMeta();
+        if (speedHint != null) {
+            speedHint.setText("倍速 " + formatSpeed(speed) + " · 上/下键调节");
         }
     }
 
-    /** 上键加快、下键减慢，到边界不再循环 */
     private void cycleLocalSpeed(boolean forward) {
         int idx = 0;
         float best = Float.MAX_VALUE;
@@ -389,19 +270,34 @@ public class PlayerActivity extends Activity {
         float next = SPEED_STEPS[idx];
         if (Math.abs(next - currentSpeed) < 0.01f) {
             Toast.makeText(this, "已是 " + formatSpeed(next), Toast.LENGTH_SHORT).show();
-            try { controller.show(overlayHideMs); } catch (Exception ignored) {}
             return;
         }
-        currentSpeed = next;
-        applySpeed(next, true);
+        applyLocalSpeed(next, forward ? "dpad-up" : "dpad-down");
         Toast.makeText(this, "倍速 " + formatSpeed(next), Toast.LENGTH_SHORT).show();
-        try { controller.show(overlayHideMs); } catch (Exception ignored) {}
-        updateMetaSpeed();
+        try { playerView.showController(); } catch (Exception ignored) {}
+        showTitleOverlay();
     }
 
-    private static String formatSpeed(float s) {
-        if (Math.abs(s - Math.round(s)) < 0.01f) return Math.round(s) + "x";
-        return String.format(java.util.Locale.US, "%.2fx", s);
+    private void updateMeta() {
+        updateMeta(lastIndex < 0 ? 0 : lastIndex, 0, "");
+    }
+
+    private void updateMeta(int index, int pl, String mode) {
+        if (meta == null) return;
+        String modeLabel = CastProtocol.MODE_DIRECT.equals(mode) ? "直链" : "推流";
+        if (pl > 0) {
+            meta.setText(String.format(Locale.US, "第%d/%d · %s · %s",
+                    index + 1, pl, formatSpeed(currentSpeed), modeLabel));
+        } else {
+            meta.setText(String.format(Locale.US, "%s", formatSpeed(currentSpeed)));
+        }
+    }
+
+    private void showTitleOverlay() {
+        if (!showOverlayPref || overlay == null) return;
+        overlay.setVisibility(View.VISIBLE);
+        ui.removeCallbacks(hideOverlay);
+        ui.postDelayed(hideOverlay, overlayHideMs);
     }
 
     private void postControlJson(JSONObject body) {
@@ -420,7 +316,9 @@ public class PlayerActivity extends Activity {
                 try (OutputStream os = c.getOutputStream()) { os.write(data); }
                 c.getResponseCode();
                 c.disconnect();
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                TvLog.w("postControl: " + e.getMessage());
+            }
         });
     }
 
@@ -442,29 +340,14 @@ public class PlayerActivity extends Activity {
         return new JSONObject(sb.toString());
     }
 
-    private void fitVideoView(int videoW, int videoH) {
-        if (video == null || videoW <= 0 || videoH <= 0) return;
-        View parent = (View) video.getParent();
-        if (parent == null) return;
-        int viewW = parent.getWidth();
-        int viewH = parent.getHeight();
-        if (viewW <= 0 || viewH <= 0) {
-            parent.post(() -> fitVideoView(videoW, videoH));
-            return;
-        }
-        float videoRatio = videoW / (float) videoH;
-        float viewRatio = viewW / (float) viewH;
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) video.getLayoutParams();
-        if (lp == null) lp = new FrameLayout.LayoutParams(0, 0);
-        if (videoRatio > viewRatio) {
-            lp.width = viewW;
-            lp.height = Math.max(1, Math.round(viewW / videoRatio));
-        } else {
-            lp.height = viewH;
-            lp.width = Math.max(1, Math.round(viewH * videoRatio));
-        }
-        lp.gravity = Gravity.CENTER;
-        video.setLayoutParams(lp);
+    private static String formatSpeed(float s) {
+        if (Math.abs(s - Math.round(s)) < 0.01f) return Math.round(s) + "x";
+        return String.format(Locale.US, "%.2fx", s);
+    }
+
+    private static String clip(String s) {
+        if (s == null) return "";
+        return s.length() > 80 ? s.substring(0, 80) + "…" : s;
     }
 
     @Override
@@ -480,11 +363,13 @@ public class PlayerActivity extends Activity {
             return true;
         }
         if (!allowLocalControl) return super.onKeyDown(keyCode, event);
-        try { controller.show(overlayHideMs); } catch (Exception ignored) {}
+        try { playerView.showController(); } catch (Exception ignored) {}
         if (keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_DPAD_CENTER) {
             try {
-                if (video.isPlaying()) video.pause();
-                else video.start();
+                if (player != null) {
+                    if (player.isPlaying()) player.pause();
+                    else player.play();
+                }
             } catch (Exception ignored) {}
             return true;
         }
@@ -508,6 +393,11 @@ public class PlayerActivity extends Activity {
             try { postControlJson(new JSONObject().put("action", "prev")); } catch (Exception ignored) {}
             return true;
         }
+        // 菜单键打开日志
+        if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_INFO) {
+            startActivity(new android.content.Intent(this, LogActivity.class));
+            return true;
+        }
         return super.onKeyDown(keyCode, event);
     }
 
@@ -523,14 +413,24 @@ public class PlayerActivity extends Activity {
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+        try {
+            if (player != null) player.pause();
+        } catch (Exception ignored) {}
+    }
+
+    @Override
     protected void onDestroy() {
         destroyed = true;
         ui.removeCallbacks(poll);
         ui.removeCallbacks(hideOverlay);
-        ui.removeCallbacks(reapplySpeed);
-        ui.removeCallbacks(speedRetry1);
-        ui.removeCallbacks(speedRetry2);
-        mediaPlayer = null;
+        try {
+            if (player != null) {
+                player.release();
+                player = null;
+            }
+        } catch (Exception ignored) {}
         net.shutdownNow();
         super.onDestroy();
     }

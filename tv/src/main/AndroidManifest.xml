@@ -29,5 +29,9 @@
             android:exported="false"
             android:screenOrientation="landscape"
             android:configChanges="keyboard|keyboardHidden|navigation" />
+        <activity
+            android:name=".LogActivity"
+            android:exported="false"
+            android:screenOrientation="landscape" />
     </application>
 </manifest>

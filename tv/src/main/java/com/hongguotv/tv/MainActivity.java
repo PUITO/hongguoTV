@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
     private final AtomicBoolean playerOpened = new AtomicBoolean(false);
     private final AtomicBoolean polling = new AtomicBoolean(false);
 
-    private TextView message, sessionText, ipInfo, hint, bindStatus;
+    private TextView message, sessionText, ipInfo, hint, bindStatus, speedLabel;
     private ImageView qrImage;
     private Button btnConnect, btnRefresh, btnUnbind, btnEnterPlayer;
     private EditText ipInput, pairInput;
@@ -140,6 +140,10 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        setupDefaultSpeedUi();
+        View logsBtn = findViewById(R.id.btnTvLogs);
+        if (logsBtn != null) logsBtn.setOnClickListener(v ->
+                startActivity(new Intent(this, LogActivity.class)));
         TvBindState.INSTANCE.load(this);
 
         message = findViewById(R.id.message);
