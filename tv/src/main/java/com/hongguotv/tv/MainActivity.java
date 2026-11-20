@@ -364,6 +364,33 @@ public class MainActivity extends Activity {
         return super.onKeyDown(keyCode, event);
     }
 
+    private void setupDefaultSpeedUi() {
+        speedLabel = findViewById(R.id.speedLabel);
+        refreshSpeedLabel();
+        float[] vals = {0.75f, 1.0f, 1.5f, 2.0f, 3.0f};
+        int[] ids = {R.id.btnSp075, R.id.btnSp10, R.id.btnSp15, R.id.btnSp20, R.id.btnSp30};
+        for (int i = 0; i < ids.length; i++) {
+            final float sp = vals[i];
+            View b = findViewById(ids[i]);
+            if (b != null) b.setOnClickListener(v -> {
+                TvPrefs.setDefaultSpeed(this, sp);
+                refreshSpeedLabel();
+                TvLog.i("默认倍速设为 " + sp);
+                Toast.makeText(this, "默认倍速 " + sp + "x（下次播放生效）", Toast.LENGTH_SHORT).show();
+            });
+        }
+    }
+
+    private void refreshSpeedLabel() {
+        if (speedLabel == null) return;
+        float s = TvPrefs.defaultSpeed(this);
+        if (Math.abs(s - Math.round(s)) < 0.01f) {
+            speedLabel.setText("当前默认：" + Math.round(s) + "x");
+        } else {
+            speedLabel.setText(String.format(java.util.Locale.US, "当前默认：%.2fx", s));
+        }
+    }
+
     @Override
     protected void onDestroy() {
         ui.removeCallbacks(pollPush);
