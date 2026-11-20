@@ -135,8 +135,8 @@ public final class NowPlaying {
         else if ("toggle".equals(action)) playing = !playing;
         else if ("speed".equals(action)) {
             float s = (float) body.optDouble("value", 1.0);
-            if (s < 0.5f) s = 0.5f;
-            if (s > 2.0f) s = 2.0f;
+            if (s < 0.75f) s = 0.75f;
+            if (s > 3.0f) s = 3.0f;
             speed = s;
         } else if ("seek".equals(action)) {
             seekMs = body.optLong("positionMs", 0);

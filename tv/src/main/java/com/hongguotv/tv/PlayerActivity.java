@@ -39,7 +39,7 @@ public class PlayerActivity extends Activity {
     public static final String EXTRA_PHONE_PORT = "phone_port";
     public static final String EXTRA_PAIR = "pair";
 
-    private static final float[] SPEED_STEPS = {0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f};
+    private static final float[] SPEED_STEPS = {0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.25f, 2.5f, 2.75f, 3.0f};
 
     private VideoView video;
     private TextView titleView, meta;
@@ -323,11 +323,8 @@ public class PlayerActivity extends Activity {
      * @param force  true 时即使与记录相同也再 set 一次
      */
     private void applySpeed(float speed, boolean force) {
-        if (speed < 0.5f) speed = 0.5f;
-        if (speed > 2.0f) speed = 2.0f;
-        if (!force && Math.abs(speed - currentSpeed) < 0.01f && prepared) {
-            // still try set if we have player
-        }
+        if (speed < 0.75f) speed = 0.75f;
+        if (speed > 3.0f) speed = 3.0f;
         currentSpeed = speed;
         if (Build.VERSION.SDK_INT < 23) return;
         if (mediaPlayer == null) return;
@@ -345,6 +342,7 @@ public class PlayerActivity extends Activity {
             try {
                 PlaybackParams params = new PlaybackParams();
                 params.setSpeed(speed);
+                // 部分盒子 VideoView 直接支持 setPlaybackParams
                 video.getClass().getMethod("setPlaybackParams", PlaybackParams.class)
                         .invoke(video, params);
             } catch (Exception ignored) {}
@@ -354,6 +352,7 @@ public class PlayerActivity extends Activity {
         }
     }
 
+    /** 上键加快、下键减慢，到边界不再循环 */
     private void cycleLocalSpeed(boolean forward) {
         int idx = 0;
         float best = Float.MAX_VALUE;
@@ -361,16 +360,30 @@ public class PlayerActivity extends Activity {
             float d = Math.abs(SPEED_STEPS[i] - currentSpeed);
             if (d < best) { best = d; idx = i; }
         }
-        if (forward) idx = (idx + 1) % SPEED_STEPS.length;
-        else idx = (idx - 1 + SPEED_STEPS.length) % SPEED_STEPS.length;
+        if (forward) {
+            if (idx < SPEED_STEPS.length - 1) idx++;
+        } else {
+            if (idx > 0) idx--;
+        }
         float next = SPEED_STEPS[idx];
+        if (Math.abs(next - currentSpeed) < 0.01f) {
+            Toast.makeText(this, "已是 " + formatSpeed(next), Toast.LENGTH_SHORT).show();
+            try { controller.show(overlayHideMs); } catch (Exception ignored) {}
+            return;
+        }
         currentSpeed = next;
         applySpeed(next, true);
         try {
             postControlJson(new JSONObject().put("action", "speed").put("value", next));
         } catch (Exception ignored) {}
-        Toast.makeText(this, "倍速 " + next + "x", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "倍速 " + formatSpeed(next), Toast.LENGTH_SHORT).show();
         try { controller.show(overlayHideMs); } catch (Exception ignored) {}
+        updateMetaSpeed();
+    }
+
+    private static String formatSpeed(float s) {
+        if (Math.abs(s - Math.round(s)) < 0.01f) return Math.round(s) + "x";
+        return String.format(java.util.Locale.US, "%.2fx", s);
     }
 
     private void postControlJson(JSONObject body) {
@@ -457,11 +470,15 @@ public class PlayerActivity extends Activity {
             } catch (Exception ignored) {}
             return true;
         }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
+                || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) {
             cycleLocalSpeed(true);
             return true;
         }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND
+                || keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN) {
             cycleLocalSpeed(false);
             return true;
         }

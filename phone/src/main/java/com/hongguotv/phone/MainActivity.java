@@ -135,7 +135,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception ignored) {}
             return true;
         });
-        String[] speeds = new String[]{"0.75","1.0","1.25","1.5","2.0"};
+        String[] speeds = new String[]{"0.75","1.0","1.25","1.5","2.0","2.5","3.0"};
         ArrayAdapter<String> spAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, speeds);
         speedSpinner.setAdapter(spAdapter);
         float def = DeviceSettings.INSTANCE.defaultSpeed;
@@ -186,7 +186,7 @@ public class MainActivity extends AppCompatActivity {
                 findViewById(R.id.btnSp075), findViewById(R.id.btnSp10), findViewById(R.id.btnSp125),
                 findViewById(R.id.btnSp15), findViewById(R.id.btnSp20)
         };
-        float[] speedVals = new float[]{0.75f, 1.0f, 1.25f, 1.5f, 2.0f};
+        float[] speedVals = new float[]{0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 2.5f, 3.0f};
         for (int i = 0; i < speedChips.length; i++) {
             final float sv = speedVals[i];
             if (speedChips[i] != null) speedChips[i].setOnClickListener(v -> {
