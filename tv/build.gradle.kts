@@ -16,8 +16,9 @@ android {
         applicationId = "com.hongguotv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 860
-        versionName = "0.8.9"
+        versionCode = 870
+        versionName = "0.9.0"
+        multiDexEnabled = true
     }
     signingConfigs {
         create("release") {
@@ -39,7 +40,12 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -48,6 +54,7 @@ dependencies {
     implementation(project(":shared"))
     implementation("com.google.zxing:core:3.5.3")
     // ExoPlayer：多数机顶盒 VideoView/MediaPlayer 不支持 PlaybackParams 倍速
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    implementation("androidx.media3:media3-exoplayer:1.2.1")
+    implementation("androidx.media3:media3-ui:1.2.1")
+    implementation("androidx.multidex:multidex:2.0.1")
 }
