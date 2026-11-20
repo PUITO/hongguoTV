@@ -437,9 +437,9 @@ public class MainActivity extends AppCompatActivity {
             currentUiSpeed = s;
             DeviceSettings.INSTANCE.defaultSpeed = s;
             SettingsStore.save(this);
-            CastServerService.NOW.control("speed", new JSONObject().put("value", s));
+            // 倍速仅本机默认偏好，不推送到 TV（TV 播放器自行控制）
             highlightSpeedChips();
-            toast("倍速 " + s);
+            toast("本机默认倍速 " + s + "（不影响电视）");
         } catch (Exception ignored) {}
     }
 

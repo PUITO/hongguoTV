@@ -53,7 +53,7 @@ public class PlayerActivity extends Activity {
     private String currentUrl = "";
     private long lastUpdatedAt = -1;
     private int lastIndex = -1;
-    private float currentSpeed = 1.5f;
+    private float currentSpeed = 1.0f;
     private long lastBackMs = 0;
     private boolean allowLocalControl = true;
     private boolean showOverlayPref = true;
@@ -116,10 +116,7 @@ public class PlayerActivity extends Activity {
         controller.setOnSpeedChangeListener(speed -> {
             currentSpeed = speed;
             applySpeed(speed, true);
-            // 同步回手机，遥控与其它端一致
-            try {
-                postControlJson(new JSONObject().put("action", "speed").put("value", speed));
-            } catch (Exception ignored) {}
+            // 仅 TV 本机倍速，不同步手机
             Toast.makeText(this, "倍速 " + speed + "x", Toast.LENGTH_SHORT).show();
             updateMetaSpeed();
         });
@@ -235,8 +232,7 @@ public class PlayerActivity extends Activity {
         if (keepOn) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (!showOverlayPref && overlay != null) overlay.setVisibility(View.GONE);
-        // 注意：不要在这里用 defaultSpeed 覆盖正在播放的倍速
-        // 倍速只跟 NOW.speed（手机遥控 / 播放器内选择）走
+        // 倍速仅 TV 播放器本地控制
     }
 
     private void applyState(JSONObject st) {
@@ -246,7 +242,6 @@ public class PlayerActivity extends Activity {
         String url = st.optString("url", "");
         String title = st.optString("title", "");
         boolean playing = st.optBoolean("playing", true);
-        float speed = (float) st.optDouble("speed", currentSpeed);
         long seekMs = st.optLong("seekMs", -1);
         int index = st.optInt("index", 0);
         int pl = st.optInt("playlistSize", 0);
@@ -255,7 +250,7 @@ public class PlayerActivity extends Activity {
         if (title != null && !title.isEmpty()) titleView.setText(title);
         if (meta != null) {
             meta.setText(String.format(Locale.US, "第%d/%d · %.2fx · %s",
-                    index + 1, Math.max(pl, 1), speed,
+                    index + 1, Math.max(pl, 1), currentSpeed,
                     CastProtocol.MODE_DIRECT.equals(mode) ? "直链" : "推流"));
         }
 
@@ -268,12 +263,7 @@ public class PlayerActivity extends Activity {
             playUrl(url);
         }
 
-        // 手机遥控倍速：只要 NOW.speed 变化就立刻作用到 MediaPlayer
-        if (Math.abs(speed - currentSpeed) > 0.01f) {
-            currentSpeed = speed;
-            applySpeed(speed, true);
-            if (controller != null) controller.setSpeedLabel(speed);
-        }
+        // 倍速仅 TV 本机控制，不跟随手机 NOW.speed
 
         if (cmd != lastCommandId) {
             lastCommandId = cmd;
@@ -404,9 +394,6 @@ public class PlayerActivity extends Activity {
         }
         currentSpeed = next;
         applySpeed(next, true);
-        try {
-            postControlJson(new JSONObject().put("action", "speed").put("value", next));
-        } catch (Exception ignored) {}
         Toast.makeText(this, "倍速 " + formatSpeed(next), Toast.LENGTH_SHORT).show();
         try { controller.show(overlayHideMs); } catch (Exception ignored) {}
         updateMetaSpeed();
