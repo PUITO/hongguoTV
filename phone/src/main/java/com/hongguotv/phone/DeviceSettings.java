@@ -51,8 +51,8 @@ public final class DeviceSettings {
         if (o.has("autoNext")) autoNext = o.optBoolean("autoNext", autoNext);
         if (o.has("defaultSpeed")) {
             float s = (float) o.optDouble("defaultSpeed", defaultSpeed);
-            if (s < 0.5f) s = 0.5f;
-            if (s > 2.0f) s = 2.0f;
+            if (s < 0.75f) s = 0.75f;
+            if (s > 3.0f) s = 3.0f;
             defaultSpeed = s;
         }
         if (o.has("showTvOverlay")) showTvOverlay = o.optBoolean("showTvOverlay", showTvOverlay);
