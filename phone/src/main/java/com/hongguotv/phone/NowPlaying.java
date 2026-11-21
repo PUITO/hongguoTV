@@ -33,6 +33,7 @@ public final class NowPlaying {
         if (index < 0) return;
         try {
             WatchHistory.updateProgress(appCtx, seriesId, index, seriesTitle, seriesCover);
+            LastCastStore.save(appCtx, this);
             AppLog.i("历史同步 series=" + seriesId + " ep=" + (index + 1));
         } catch (Exception e) {
             AppLog.w("历史同步失败: " + e.getMessage());
@@ -107,6 +108,10 @@ public final class NowPlaying {
         // 切集保持当前倍速
         bump();
         syncHistory();
+        // 当前集已有 url 时，后台预取下一集（无 url 则等 resolve 后再预取）
+        if (sourceUrl != null && !sourceUrl.isEmpty()) {
+            try { EpisodePrefetcher.prefetchPlaylist(playlist, index); } catch (Exception ignored) {}
+        }
     }
 
     public synchronized boolean next() {
@@ -115,6 +120,8 @@ public final class NowPlaying {
         index++;
         applyIndex();
         resolvePreferredQualityLocked();
+        // 切到新集后立刻预取再下一集
+        try { EpisodePrefetcher.prefetchPlaylist(playlist, index); } catch (Exception ignored) {}
         return true;
     }
 
@@ -123,6 +130,7 @@ public final class NowPlaying {
         index--;
         applyIndex();
         resolvePreferredQualityLocked();
+        try { EpisodePrefetcher.prefetchPlaylist(playlist, index); } catch (Exception ignored) {}
         return true;
     }
 
@@ -130,6 +138,11 @@ public final class NowPlaying {
      * 联播/切集后按设置的 preferredQuality 重新取流，避免列表里残留的公共 360p。
      * 调用方须已持有 this 锁。
      */
+    /** 供遥控恢复推流在持锁外触发重解析 */
+    public synchronized void resolvePreferredQualityPublic() {
+        resolvePreferredQualityLocked();
+    }
+
     private void resolvePreferredQualityLocked() {
         try {
             JSONObject item = playlist.optJSONObject(index);
@@ -162,8 +175,13 @@ public final class NowPlaying {
             item.put("source", r.optString("source", "app"));
             item.put("height", r.optInt("height", 0));
             updatedAt = System.currentTimeMillis();
+            if (CastServerService.CACHE != null
+                    && !nu.startsWith("file://") && !nu.startsWith("/")) {
+                try { CastServerService.CACHE.setCurrent(nu); } catch (Exception ignored) {}
+            }
             bump();
             AppLog.i("切集重解析成功 q=" + nq + " url=" + AppLog.clip(nu, 80));
+            try { EpisodePrefetcher.prefetchPlaylist(playlist, index); } catch (Exception ignored) {}
         } catch (Exception e) {
             AppLog.w("切集重解析失败: " + e.getMessage());
         }

@@ -164,7 +164,9 @@ public class SeriesDetailActivity extends Activity {
                             }
                             WatchHistory.updateProgress(this, seriesId, idx,
                                     detail.optString("title"), detail.optString("cover"));
+                            LastCastStore.save(this, CastServerService.NOW);
                             EpisodePrefetcher.prefetchAfter(detail, idx);
+                            EpisodePrefetcher.prefetchPlaylist(CastServerService.NOW.playlist, idx);
                             Toast.makeText(this, "已推送电视 · " + fQuality
                                     + (fUrl.startsWith("file") ? "（明文）" : ""), Toast.LENGTH_SHORT).show();
                             AppLog.i("推送TV source=" + AppLog.clip(fUrl, 80));

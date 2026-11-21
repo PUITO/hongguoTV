@@ -257,6 +257,8 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btnPush).setOnClickListener(v -> pushManual());
         findViewById(R.id.btnSearch).setOnClickListener(v -> doSearch());
         findViewById(R.id.btnResolve).setOnClickListener(v -> resolveAndPush());
+        View btnResume = findViewById(R.id.btnResumeCast);
+        if (btnResume != null) btnResume.setOnClickListener(v -> resumeLastCast());
         findViewById(R.id.btnPlay).setOnClickListener(v -> control("play"));
         findViewById(R.id.btnPause).setOnClickListener(v -> control("pause"));
         findViewById(R.id.btnNext).setOnClickListener(v -> control("next"));
@@ -443,14 +445,124 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
     }
 
+
+    /**
+     * 遥控：恢复上一次推流会话（不依赖历史列表是否同步成功）。
+     */
+    private void resumeLastCast() {
+        net.execute(() -> {
+            try {
+                NowPlaying now = CastServerService.NOW;
+                if (now.playlist.length() > 0 && now.seriesId != null && !now.seriesId.isEmpty()) {
+                    synchronized (now) {
+                        JSONObject item = now.playlist.optJSONObject(now.index);
+                        String url = item != null ? item.optString("url") : now.sourceUrl;
+                        if (url == null || url.isEmpty()) {
+                            now.resolvePreferredQualityPublic();
+                            url = now.sourceUrl;
+                        }
+                        if (url == null || url.isEmpty()) {
+                            throw new IllegalStateException("当前集无可用地址");
+                        }
+                        now.sourceUrl = url;
+                        now.playing = true;
+                        now.updatedAt = System.currentTimeMillis();
+                        now.bump();
+                        if (CastServerService.CACHE != null
+                                && !url.startsWith("file://") && !url.startsWith("/")) {
+                            CastServerService.CACHE.setCurrent(url);
+                        }
+                        LastCastStore.save(this, now);
+                        EpisodePrefetcher.prefetchPlaylist(now.playlist, now.index);
+                    }
+                    ui.post(() -> {
+                        toast("已恢复推流 · 第" + (CastServerService.NOW.index + 1) + "集");
+                        refreshNowPlaying();
+                    });
+                    return;
+                }
+                JSONObject sess = LastCastStore.load(this);
+                if (sess == null) {
+                    ui.post(() -> toast("没有可恢复的推流记录，请先在片源推送一集"));
+                    return;
+                }
+                String seriesId = sess.optString("seriesId");
+                int index = sess.optInt("index", 0);
+                JSONArray slim = sess.optJSONArray("playlist");
+                if (slim == null || slim.length() == 0) {
+                    ui.post(() -> toast("推流记录无效"));
+                    return;
+                }
+                AppLog.i("恢复推流 series=" + seriesId + " ep=" + (index + 1));
+                JSONObject cur = slim.optJSONObject(Math.max(0, Math.min(index, slim.length() - 1)));
+                String vid = cur != null ? cur.optString("vid") : "";
+                if (vid.isEmpty()) {
+                    ui.post(() -> toast("记录中无 vid，无法恢复"));
+                    return;
+                }
+                String pref = DeviceSettings.INSTANCE.preferredQuality;
+                JSONObject resolved = com.hongguotv.phone.app.AppPlayClient.fetchEpisode(vid, pref);
+                String url = resolved.optString("url");
+                if (url.isEmpty()) throw new IllegalStateException("取流失败");
+                JSONArray pl = new JSONArray();
+                for (int i = 0; i < slim.length(); i++) {
+                    JSONObject s = slim.getJSONObject(i);
+                    JSONObject item = new JSONObject()
+                            .put("title", s.optString("title"))
+                            .put("seriesId", seriesId)
+                            .put("seriesTitle", sess.optString("seriesTitle"))
+                            .put("cover", sess.optString("seriesCover"))
+                            .put("vid", s.optString("vid"))
+                            .put("episode", s.optInt("episode", i + 1));
+                    if (i == index) {
+                        item.put("url", url)
+                                .put("quality", resolved.optString("quality", pref))
+                                .put("source", resolved.optString("source", "app"));
+                    } else {
+                        item.put("url", "").put("quality", "").put("source", "");
+                    }
+                    pl.put(item);
+                }
+                synchronized (now) {
+                    now.seriesId = seriesId;
+                    now.seriesTitle = sess.optString("seriesTitle");
+                    now.seriesCover = sess.optString("seriesCover");
+                    now.setPlaylist(pl, index);
+                    now.sourceUrl = url;
+                    now.playing = true;
+                    if (CastServerService.CACHE != null
+                            && !url.startsWith("file://") && !url.startsWith("/")) {
+                        CastServerService.CACHE.setCurrent(url);
+                    }
+                    LastCastStore.save(this, now);
+                }
+                EpisodePrefetcher.prefetchPlaylist(pl, index);
+                final String q = resolved.optString("quality", pref);
+                final int epShow = index + 1;
+                ui.post(() -> {
+                    toast("已恢复推流 · 第" + epShow + "集 · " + q);
+                    refreshNowPlaying();
+                });
+            } catch (Exception e) {
+                AppLog.e("恢复推流失败: " + e.getMessage(), e);
+                ui.post(() -> toast("恢复失败: " + e.getMessage()));
+            }
+        });
+    }
+
     private void control(String action) {
         try {
             CastServerService.NOW.control(action, new JSONObject());
-            if (("next".equals(action) || "prev".equals(action))
-                    && DeviceSettings.INSTANCE.isProxy()
-                    && CastServerService.CACHE != null) {
-                String u = CastServerService.NOW.sourceUrl;
-                if (u != null && !u.isEmpty()) CastServerService.CACHE.setCurrent(u);
+            if (("next".equals(action) || "prev".equals(action))) {
+                if (DeviceSettings.INSTANCE.isProxy() && CastServerService.CACHE != null) {
+                    String u = CastServerService.NOW.sourceUrl;
+                    if (u != null && !u.isEmpty()) CastServerService.CACHE.setCurrent(u);
+                }
+                try {
+                    EpisodePrefetcher.prefetchNextFromNow();
+                } catch (Exception ignored) {}
+                try { LastCastStore.save(this, CastServerService.NOW); } catch (Exception ignored) {}
+                refreshNowPlaying();
             }
         } catch (Exception ignored) {}
     }
