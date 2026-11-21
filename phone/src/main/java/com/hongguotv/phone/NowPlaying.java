@@ -219,7 +219,7 @@ public final class NowPlaying {
         bump();
     }
 
-    private void bump() { commandId++; }
+    public void bump() { commandId++; }
 
     public synchronized JSONObject toJson(String phoneIp, int port) throws Exception {
         DeviceSettings s = DeviceSettings.INSTANCE;
