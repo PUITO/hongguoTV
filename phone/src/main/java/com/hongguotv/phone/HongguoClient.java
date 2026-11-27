@@ -1,6 +1,7 @@
 package com.hongguotv.phone;
 
 import com.hongguotv.phone.app.AppPlayClient;
+import com.hongguotv.phone.core.AppPlayback;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
