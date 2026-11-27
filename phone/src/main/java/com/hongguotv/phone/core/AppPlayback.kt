@@ -130,6 +130,12 @@ object AppPlayback {
     fun fetchStreams(vid: String): List<Stream> {
         lastError = ""
         AppLog.i("取流开始 vid=$vid")
+        // App 接口只接受数字 vid；v1_ 为网页预览 id，走公共源即可
+        if (!vid.matches(Regex("^\\d{6,30}$"))) {
+            lastError = "非数字 vid（可能是 v1_ 网页预览 id）"
+            AppLog.w("取流跳过 App: $vid")
+            throw IllegalStateException(lastError)
+        }
         // 最多：当前设备 2 次路径 + 换设备再 2 次
         val errors = mutableListOf<String>()
         for (round in 0 until 2) {
@@ -380,43 +386,51 @@ object AppPlayback {
     }
 
     private fun fetchTabGet(id: Identity, vid: String, closeConn: Boolean, baseUrl: String = VIDEO_TAB): List<Stream> {
-        val ticket = System.currentTimeMillis()
-        val khronos = ticket / 1000
-        val params = baseDevice(id)
-        params["video_id"] = vid
-        params["video_id_type"] = "0"
-        params["device_level"] = "1"
-        params["need_all_video_definition"] = "1"
-        params["need_mp4_align"] = "0"
-        params["use_os_player"] = "0"
-        params["video_platform"] = "1024"
-        params["source"] = "0"
-        params["from_video_id"] = ""
-        params["ts"] = khronos.toString()
-        params["_rticket"] = ticket.toString()
-        val query = encodeQuery(params)
-        val url = baseUrl + "?" + query
-        val signed = PlayerSigner.headers(query, null, khronos, id.deviceId, id.installId)
-        AppLog.i("TAB 签名 argusLen=${signed["x-argus"]?.length ?: 0}")
+        // drama: video_tab 必须用 V5（Argus 会 empty body）
+        val now = System.currentTimeMillis()
+        val values = linkedMapOf(
+            "aid" to "8662",
+            "app_name" to "novelread",
+            "version_code" to "74332",
+            "version_name" to "7.4.3.32",
+            "channel" to "vivo_8662_64",
+            "device_platform" to "android",
+            "device_type" to "PGT-AN10",
+            "os_version" to "12",
+            "update_version_code" to "74332",
+            "iid" to id.installId,
+            "cdid" to id.cdid,
+            "device_id" to id.deviceId,
+            "video_id" to vid,
+            "video_id_type" to "0",
+            "device_level" to "1",
+            "need_all_video_definition" to "1",
+            "need_mp4_align" to "0",
+            "use_os_player" to "0",
+            "video_platform" to "1024",
+            "source" to "0",
+            "from_video_id" to "",
+        )
+        val signer = Signer(mobileV5 = true)
+        val signed = signer.signPlayback(baseUrl, values, null, now)
+        AppLog.i("TAB V5 medusaLen=${signed.headers["x-medusa"]?.length ?: 0}")
         val headers = linkedMapOf(
-            "User-Agent" to VIDEO_UA,
+            "User-Agent" to "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)",
             "Accept" to "application/json; charset=utf-8,application/x-protobuf",
             "sdk-version" to "2",
             "x-xs-from-web" to "0",
             "passport-sdk-version" to "5051452",
             "x-ss-dp" to "8662",
-            "x-tt-dt" to "",
             "x-tt-store-region" to "cn",
             "x-tt-store-region-src" to "did",
-            "x-tt-request-tag" to "t=0;n=0",
         )
         cookieHeader(id)?.let { headers["Cookie"] = it }
         if (closeConn) headers["Connection"] = "close"
-        headers.putAll(signed)
-        val conn = open(url, "GET", headers, closeConn)
+        headers.putAll(signed.headers)
+        val conn = open(signed.url, "GET", headers, closeConn)
         val code = conn.responseCode
         val text = readBody(conn)
-        AppLog.i("TAB HTTP $code hdrs=${headerSummary(conn)} len=${text.length} body=${AppLog.clip(text, 220)}")
+        AppLog.i("TAB HTTP $code len=${text.length} body=${AppLog.clip(text, 220)}")
         if (code >= 400) throw IllegalStateException("HTTP $code")
         if (text.isBlank()) throw IllegalStateException("empty body")
         val root = JSONObject(text)
@@ -426,61 +440,8 @@ object AppPlayback {
     }
 
     private fun fetchApiPost(id: Identity, vid: String, gzip: Boolean, closeConn: Boolean, baseUrl: String = VIDEO_API): List<Stream> {
-        val payload = JSONObject()
-            .put(
-                "biz_param",
-                JSONObject()
-                    .put("detail_page_version", 0)
-                    .put("device_level", 1)
-                    .put("disable_digg_stat", false)
-                    .put("disable_video_relate_book", false)
-                    .put("need_all_video_definition", true)
-                    .put("need_mp4_align", false)
-                    .put("use_os_player", false)
-                    .put("use_server_dns", false)
-                    .put("video_platform", 1024),
-            )
-            .put("mixed_video_id_map", JSONObject().put("1004", JSONArray().put(vid)))
-            .put("dr_scene", "player")
-            .toString()
-        val raw = payload.toByteArray(Charsets.UTF_8)
-        val body = if (gzip) gzip(raw) else raw
-        val ticket = System.currentTimeMillis()
-        val khronos = ticket / 1000
-        val params = baseDevice(id)
-        params["ts"] = khronos.toString()
-        params["_rticket"] = ticket.toString()
-        val query = encodeQuery(params)
-        val url = baseUrl + "?" + query
-        val signed = PlayerSigner.headers(query, body, khronos, id.deviceId, id.installId)
-        AppLog.i("POST 签名 gzip=$gzip argusLen=${signed["x-argus"]?.length ?: 0} body=${body.size}")
-        val headers = linkedMapOf(
-            "User-Agent" to VIDEO_UA,
-            "Accept" to "application/json; charset=utf-8,application/x-protobuf",
-            "Content-Type" to "application/json; charset=UTF-8",
-            "sdk-version" to "2",
-            "x-xs-from-web" to "0",
-            "passport-sdk-version" to "5051452",
-            "x-ss-dp" to "8662",
-            "x-tt-dt" to "",
-            "x-tt-store-region" to "cn",
-            "x-tt-store-region-src" to "did",
-        )
-        cookieHeader(id)?.let { headers["Cookie"] = it }
-        if (gzip) headers["Content-Encoding"] = "gzip"
-        if (closeConn) headers["Connection"] = "close"
-        headers.putAll(signed)
-        val conn = open(url, "POST", headers, closeConn)
-        conn.outputStream.use { it.write(body) }
-        val code = conn.responseCode
-        val text = readBody(conn)
-        AppLog.i("POST HTTP $code gzip=$gzip hdrs=${headerSummary(conn)} len=${text.length} body=${AppLog.clip(text, 220)}")
-        if (code >= 400) throw IllegalStateException("HTTP $code")
-        if (text.isBlank()) throw IllegalStateException("empty body")
-        val root = JSONObject(text)
-        val biz = root.optInt("code", root.optInt("Code", 0))
-        if (biz != 0) throw IllegalStateException("code $biz")
-        return parseStreams(root)
+        // multi_video_model 同样需要 V5；Argus 会 empty body
+        return fetchV5Post(id, vid, baseUrl)
     }
 
     private fun parseStreams(root: JSONObject): List<Stream> {

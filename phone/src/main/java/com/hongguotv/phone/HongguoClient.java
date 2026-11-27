@@ -210,19 +210,34 @@ public final class HongguoClient {
                 try { com.hongguotv.phone.core.AppPlayback.clearIdentity(); } catch (Exception ignored) {}
             }
         }
-        // 2) 公共源兜底：仅当用户开启「允许清晰度降级」
-        if (!DeviceSettings.INSTANCE.allowQualityFallback) {
-            String msg = "无 " + pref + " 清晰度（已关闭降级）"
-                    + (appErr != null ? (": " + appErr.getMessage()) : "")
-                    + " last=" + com.hongguotv.phone.core.AppPlayback.lastError();
-            AppLog.w(msg);
-            throw new IllegalStateException(msg);
-        }
+        // 2) 公共源兜底：App 全失败时始终尝试网页公开地址（与清晰度降级开关无关）
+        //    清晰度降级开关只影响「App 已返回流但档位不够时是否接受更低」
         String[] qs = qualityOrder(pref);
+        if (!DeviceSettings.INSTANCE.allowQualityFallback) {
+            // 只试首选档；失败再试 360p 保底能播
+            qs = new String[]{ pref.contains("1080") ? "1080p" : pref.contains("720") ? "720p" : "360p", "360p" };
+        }
+        Exception lastPub = null;
         for (String q : qs) {
             String publicUrl = ORIGIN + "/video/public/" + vid + "/" + q + ".mp4";
-            AppLog.w("回退公共 " + q + " vid=" + vid
-                    + (appErr != null ? (" cause=" + appErr.getMessage()) : ""));
+            try {
+                if (probePublic(publicUrl)) {
+                    AppLog.w("回退公共 " + q + " vid=" + vid
+                            + (appErr != null ? (" cause=" + appErr.getMessage()) : ""));
+                    return new JSONObject()
+                            .put("url", publicUrl)
+                            .put("quality", q)
+                            .put("vid", vid)
+                            .put("source", "web-public")
+                            .put("seriesId", seriesId)
+                            .put("episode", episode)
+                            .put("title", "第" + episode + "集");
+                }
+            } catch (Exception e) {
+                lastPub = e;
+            }
+            // 无 HEAD 权限/失败时仍返回 URL，交给播放器
+            AppLog.w("回退公共(未探测) " + q + " vid=" + vid);
             return new JSONObject()
                     .put("url", publicUrl)
                     .put("quality", q)
@@ -232,7 +247,25 @@ public final class HongguoClient {
                     .put("episode", episode)
                     .put("title", "第" + episode + "集");
         }
-        throw new IllegalStateException("取流失败" + (appErr != null ? (": " + appErr.getMessage()) : ""));
+        throw new IllegalStateException("取流失败"
+                + (appErr != null ? (": " + appErr.getMessage()) : "")
+                + " last=" + com.hongguotv.phone.core.AppPlayback.lastError()
+                + (lastPub != null ? (" pub=" + lastPub.getMessage()) : ""));
+    }
+
+    private static boolean probePublic(String urlSpec) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(urlSpec).openConnection();
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(5000);
+            c.setRequestMethod("HEAD");
+            c.setRequestProperty("User-Agent", UA);
+            c.setInstanceFollowRedirects(true);
+            int code = c.getResponseCode();
+            return code >= 200 && code < 400;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public static JSONObject resolvePlay(String seriesId, String vidOrEp) throws Exception {
