@@ -107,8 +107,18 @@ public final class HongguoClient {
         String[] qualityTry = qualityOrder(quality);
 
         JSONArray episodes = new JSONArray();
-        int n = Math.max(vids.size(), episodeCnt);
-        if (n < 1) n = 1;
+        // 有 vid 列表时以列表为准，避免 episode_cnt 很大却没有 vid 导致「全部 vid 为空」
+        int n;
+        if (!vids.isEmpty()) {
+            n = vids.size();
+            // 若站点声明集数更大，仍以已解析到的 vid 为准（后续可接目录 API）
+            if (episodeCnt > n) {
+                AppLog.w("detail vid_list=" + n + " < episode_cnt=" + episodeCnt + "，仅展示已解析集");
+            }
+        } else {
+            n = Math.max(1, episodeCnt);
+            AppLog.w("detail 无 vid_list series=" + seriesId + " episode_cnt=" + episodeCnt);
+        }
         for (int i = 0; i < n; i++) {
             String vid = i < vids.size() ? vids.get(i) : "";
             boolean free = i < accessible && !vid.isEmpty();
@@ -151,7 +161,7 @@ public final class HongguoClient {
 
     /** 单集取流：公共源优先，失败则 App 签名（对齐 drama 按集请求） */
     public static JSONObject resolveEpisode(String seriesId, String vid, int episode, String preferredQuality) throws Exception {
-        if (vid == null || vid.isEmpty()) throw new IllegalStateException("无 vid");
+        if (vid == null || vid.isEmpty()) throw new IllegalStateException("无 vid（片源未解析到视频 ID，请重新进入详情或换一部剧）");
         String pref = preferredQuality == null || preferredQuality.isEmpty() ? "1080p" : preferredQuality;
         // 1) 优先 App 签名取流（完整集 + 可选清晰度）；公共源仅作最后兜底试看
         Exception appErr = null;
@@ -240,21 +250,39 @@ public final class HongguoClient {
 
     private static List<String> extractVidList(String html, String seriesId) {
         List<String> vids = new ArrayList<>();
+        if (html == null || html.isEmpty()) return vids;
+        // 新版官网：vid_list 为 "v1_xxxx"；旧版为纯数字
         Matcher m = Pattern.compile("\"vid_list\"\\s*:\\s*\\[(.*?)]", Pattern.DOTALL).matcher(html);
         if (m.find()) {
-            Matcher vm = Pattern.compile("\"(\\d+)\"").matcher(m.group(1));
+            Matcher vm = Pattern.compile("\"([^\"]+)\"").matcher(m.group(1));
             while (vm.find()) {
-                String v = vm.group(1);
-                if (!v.equals(seriesId) && !vids.contains(v)) vids.add(v);
+                String v = vm.group(1).trim();
+                if (v.isEmpty() || v.equals(seriesId) || vids.contains(v)) continue;
+                if (v.startsWith("v1_") || v.matches("\\d{6,}")) {
+                    vids.add(v);
+                }
             }
         }
+        // 页面散落 "vid":"..."
         if (vids.isEmpty()) {
-            m = Pattern.compile("video/public/(\\d+)/").matcher(html);
-            while (m.find()) {
-                String v = m.group(1);
-                if (!v.equals(seriesId) && !vids.contains(v)) vids.add(v);
+            Matcher vm = Pattern.compile("\"vid\"\\s*:\\s*\"([^\"]+)\"").matcher(html);
+            while (vm.find()) {
+                String v = vm.group(1).trim();
+                if (v.isEmpty() || v.equals(seriesId) || vids.contains(v)) continue;
+                if (v.startsWith("v1_") || v.matches("\\d{6,}")) vids.add(v);
             }
         }
+        // 公共播放路径
+        if (vids.isEmpty()) {
+            m = Pattern.compile("video/public/([^/\\s\"']+)/").matcher(html);
+            while (m.find()) {
+                String v = m.group(1).trim();
+                if (v.isEmpty() || v.equals(seriesId) || vids.contains(v)) continue;
+                if (v.startsWith("v1_") || v.matches("\\d{6,}")) vids.add(v);
+            }
+        }
+        AppLog.i("extractVidList series=" + seriesId + " n=" + vids.size()
+                + (vids.isEmpty() ? "" : (" first=" + vids.get(0))));
         return vids;
     }
 

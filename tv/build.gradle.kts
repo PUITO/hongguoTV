@@ -16,8 +16,8 @@ android {
         applicationId = "com.hongguotv.tv"
         minSdk = 21
         targetSdk = 34
-        versionCode = 880
-        versionName = "0.9.1"
+        versionCode = 890
+        versionName = "0.9.2"
         multiDexEnabled = true
     }
     signingConfigs {
