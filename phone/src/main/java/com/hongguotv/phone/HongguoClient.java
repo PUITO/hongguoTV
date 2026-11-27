@@ -100,47 +100,71 @@ public final class HongguoClient {
         int episodeCnt = parseInt(match(html, "\"episode_cnt\"\\s*:\\s*(\\d+)"), 1);
         int accessible = parseInt(match(html, "\"accessible_episode_cnt\"\\s*:\\s*(\\d+)"), Math.min(5, episodeCnt));
 
-        List<String> vids = extractVidList(html, seriesId);
+        List<String> webVids = extractVidList(html, seriesId);
         String quality = DeviceSettings.INSTANCE.preferredQuality;
         if (quality == null || quality.isEmpty() || "auto".equals(quality)) quality = "360p";
-        // 公共源实测稳定档：360p；高清档占位，失败时回退
         String[] qualityTry = qualityOrder(quality);
 
-        JSONArray episodes = new JSONArray();
-        // 有 vid 列表时以列表为准，避免 episode_cnt 很大却没有 vid 导致「全部 vid 为空」
-        int n;
-        if (!vids.isEmpty()) {
-            n = vids.size();
-            // 若站点声明集数更大，仍以已解析到的 vid 为准（后续可接目录 API）
-            if (episodeCnt > n) {
-                AppLog.w("detail vid_list=" + n + " < episode_cnt=" + episodeCnt + "，仅展示已解析集");
-            }
-        } else {
-            n = Math.max(1, episodeCnt);
-            AppLog.w("detail 无 vid_list series=" + seriesId + " episode_cnt=" + episodeCnt);
+        // 优先 App video_detail 拉全部分集（官网 SSR 往往只有 3~5 条预览）
+        List<AppPlayback.EpisodeRow> appEps = null;
+        try {
+            appEps = AppPlayback.INSTANCE.fetchSeriesEpisodes(seriesId);
+            AppLog.i("detail App分集 n=" + appEps.size() + " series=" + seriesId);
+        } catch (Exception e) {
+            AppLog.w("detail App分集失败: " + e.getMessage() + "，回退网页 vid_list");
         }
-        for (int i = 0; i < n; i++) {
-            String vid = i < vids.size() ? vids.get(i) : "";
-            boolean free = i < accessible && !vid.isEmpty();
-            String url = "";
-            String usedQ = "360p";
-            if (free) {
-                for (String q : qualityTry) {
-                    String candidate = ORIGIN + "/video/public/" + vid + "/" + q + ".mp4";
-                    // 不在主线程 HEAD；先按首选拼 URL，播放失败再降级由播放器侧处理
-                    url = candidate;
-                    usedQ = q;
-                    break;
+
+        JSONArray episodes = new JSONArray();
+        if (appEps != null && !appEps.isEmpty()) {
+            for (AppPlayback.EpisodeRow row : appEps) {
+                String vid = row.getVid();
+                int ep = Math.max(1, row.getIndex());
+                boolean free = ep <= accessible && vid != null && !vid.isEmpty();
+                String url = "";
+                String usedQ = "360p";
+                if (free) {
+                    url = ORIGIN + "/video/public/" + vid + "/" + qualityTry[0] + ".mp4";
+                    usedQ = qualityTry[0];
                 }
+                String epTitle = row.getTitle();
+                if (epTitle == null || epTitle.isEmpty()) epTitle = "第" + ep + "集";
+                episodes.put(new JSONObject()
+                        .put("episode", ep)
+                        .put("vid", vid)
+                        .put("title", epTitle)
+                        .put("url", url)
+                        .put("quality", usedQ)
+                        .put("locked", row.getLocked() || !free)
+                        .put("cover", row.getCover() == null ? "" : row.getCover())
+                        .put("seriesId", seriesId));
             }
-            episodes.put(new JSONObject()
-                    .put("episode", i + 1)
-                    .put("vid", vid)
-                    .put("title", "第" + (i + 1) + "集")
-                    .put("url", url)
-                    .put("quality", usedQ)
-                    .put("locked", !free)
-                    .put("seriesId", seriesId));
+            if (episodes.length() > episodeCnt) episodeCnt = episodes.length();
+        } else {
+            // 网页兜底：有多少 vid 展示多少；并按 episode_cnt 补齐占位（旧版行为）
+            int n = Math.max(webVids.size(), Math.max(1, episodeCnt));
+            if (webVids.isEmpty()) {
+                AppLog.w("detail 无 vid_list series=" + seriesId + " episode_cnt=" + episodeCnt);
+            } else if (webVids.size() < episodeCnt) {
+                AppLog.w("detail 网页 vid=" + webVids.size() + " < episode_cnt=" + episodeCnt + "，后半集待 App 取流");
+            }
+            for (int i = 0; i < n; i++) {
+                String vid = i < webVids.size() ? webVids.get(i) : "";
+                boolean free = i < accessible && !vid.isEmpty();
+                String url = "";
+                String usedQ = "360p";
+                if (free) {
+                    url = ORIGIN + "/video/public/" + vid + "/" + qualityTry[0] + ".mp4";
+                    usedQ = qualityTry[0];
+                }
+                episodes.put(new JSONObject()
+                        .put("episode", i + 1)
+                        .put("vid", vid)
+                        .put("title", "第" + (i + 1) + "集")
+                        .put("url", url)
+                        .put("quality", usedQ)
+                        .put("locked", !free)
+                        .put("seriesId", seriesId));
+            }
         }
         String note;
         if (accessible < episodeCnt) {

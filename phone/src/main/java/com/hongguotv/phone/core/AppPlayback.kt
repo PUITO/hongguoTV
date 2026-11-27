@@ -636,6 +636,162 @@ object AppPlayback {
             URLEncoder.encode(it.key, "UTF-8") + "=" + URLEncoder.encode(it.value, "UTF-8")
         }
 
+
+    private val VIDEO_DETAIL_HOSTS = listOf(
+        "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/video_detail/v1/",
+        "https://api5-normal-lf.fqnovel.com/novel/player/video_detail/v1/",
+        "https://api5-normal-sinfonlinec.fqnovel.com/novel/player/video_detail/v1/",
+    )
+
+    data class EpisodeRow(
+        val vid: String,
+        val index: Int,
+        val title: String,
+        val cover: String,
+        val locked: Boolean,
+    )
+
+    /**
+     * App 目录：video_detail 拉全量分集（官网 SSR 通常只有几条预览 vid）。
+     * 对齐 hongguo-drama fetchAppEpisodeList。
+     */
+    fun fetchSeriesEpisodes(seriesId: String): List<EpisodeRow> {
+        val sid = seriesId.trim()
+        if (sid.isEmpty()) throw IllegalArgumentException("empty seriesId")
+        var last: Exception? = null
+        for (round in 0 until 2) {
+            try {
+                val id = obtainIdentity(forceNew = round > 0)
+                for (host in VIDEO_DETAIL_HOSTS) {
+                    try {
+                        val rows = fetchVideoDetail(id, sid, host)
+                        if (rows.isNotEmpty()) {
+                            AppLog.i("video_detail 成功 n=${rows.size} series=$sid host=${host.substringAfter("://").substringBefore("/")}")
+                            return rows
+                        }
+                    } catch (e: Exception) {
+                        last = e
+                        AppLog.w("video_detail 失败 host=${host.substringAfter("://").substringBefore("/")}: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                last = e
+                AppLog.w("video_detail identity: ${e.message}")
+                clearIdentity()
+            }
+        }
+        throw last ?: IllegalStateException("video_detail empty")
+    }
+
+    private fun fetchVideoDetail(id: Identity, seriesId: String, baseUrl: String): List<EpisodeRow> {
+        val now = System.currentTimeMillis()
+        val payload = JSONObject()
+            .put("series_id", seriesId)
+            .put(
+                "biz_param",
+                JSONObject()
+                    .put("caller_scene", "single_col")
+                    .put("detail_page_version", 0)
+                    .put("from_video_id", "")
+                    .put("need_all_video_definition", false)
+                    .put("need_mp4_align", false)
+                    .put("source", 4)
+                    .put("video_id_type", 1),
+            )
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+        val body = gzip(payload)
+        val values = linkedMapOf(
+            "aid" to "8662",
+            "app_name" to "novelread",
+            "version_code" to "74532",
+            "version_name" to "7.4.5.32",
+            "channel" to "update_64",
+            "device_platform" to "android",
+            "device_type" to "25053RT47C",
+            "os_version" to "16",
+            "update_version_code" to "74532",
+            "iid" to id.installId,
+            "cdid" to id.cdid,
+            "device_id" to id.deviceId,
+            "_rticket" to now.toString(),
+        )
+        val signer = Signer(mobileV5 = true)
+        val signed = signer.signPlayback(baseUrl, values, body, now)
+        val headers = linkedMapOf(
+            "User-Agent" to VIDEO_UA,
+            "Accept" to "application/json",
+            "Content-Type" to "application/json; charset=utf-8",
+            "Content-Encoding" to "gzip",
+            "x-ss-stub" to digest("MD5", body).hex().uppercase(),
+            "sdk-version" to "2",
+            "x-xs-from-web" to "0",
+            "passport-sdk-version" to "5051452",
+            "x-ss-dp" to "8662",
+            "x-tt-store-region" to "cn",
+            "x-tt-store-region-src" to "did",
+            "Connection" to "close",
+        )
+        cookieHeader(id)?.let { headers["Cookie"] = it }
+        headers.putAll(signed.headers)
+        val conn = open(signed.url, "POST", headers, closeConn = true)
+        conn.outputStream.use { it.write(body) }
+        val code = conn.responseCode
+        val text = readBody(conn)
+        AppLog.i("video_detail HTTP $code len=${text.length} body=${AppLog.clip(text, 180)}")
+        if (code >= 400) throw IllegalStateException("HTTP $code")
+        if (text.isBlank()) throw IllegalStateException("empty body")
+        val root = JSONObject(text)
+        val biz = root.optInt("code", root.optInt("Code", -1))
+        if (biz != 0) throw IllegalStateException("code $biz ${root.optString("message")}")
+        val data = root.optJSONObject("data") ?: throw IllegalStateException("no data")
+        val vd = data.optJSONObject("video_data") ?: data
+        val list = vd.optJSONArray("video_list")
+        val out = ArrayList<EpisodeRow>()
+        if (list != null) {
+            for (i in 0 until list.length()) {
+                val item = list.optJSONObject(i) ?: continue
+                val vid = item.optString("vid").ifBlank {
+                    val n = item.optLong("vid", 0L)
+                    if (n > 0) n.toString() else ""
+                }
+                if (vid.isBlank()) continue
+                val idx = item.optInt("vid_index", item.optInt("index", i + 1))
+                val title = item.optString("title", "第${idx}集")
+                val cover = item.optString("cover_url", item.optString("series_cover", ""))
+                val locked = item.optBoolean("disable_play", false)
+                out.add(EpisodeRow(vid, idx, title, cover, locked))
+            }
+        }
+        // some responses use object map keyed by index
+        if (out.isEmpty()) {
+            val obj = vd.optJSONObject("video_list")
+            if (obj != null) {
+                val keys = obj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val item = obj.optJSONObject(k) ?: continue
+                    val vid = item.optString("vid").ifBlank {
+                        val n = item.optLong("vid", 0L)
+                        if (n > 0) n.toString() else ""
+                    }
+                    if (vid.isBlank()) continue
+                    val idx = item.optInt("vid_index", k.toIntOrNull() ?: (out.size + 1))
+                    out.add(
+                        EpisodeRow(
+                            vid, idx,
+                            item.optString("title", "第${idx}集"),
+                            item.optString("cover_url", ""),
+                            item.optBoolean("disable_play", false),
+                        ),
+                    )
+                }
+            }
+        }
+        out.sortBy { it.index }
+        return out
+    }
+
     private fun gzip(data: ByteArray): ByteArray {
         val bos = ByteArrayOutputStream()
         GZIPOutputStream(bos).use { it.write(data) }
