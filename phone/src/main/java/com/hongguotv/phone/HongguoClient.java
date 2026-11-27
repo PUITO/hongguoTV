@@ -239,7 +239,7 @@ public final class HongguoClient {
     }
 
     /** 公共源按 360 → 720 → 1080 探测，官网公开档以 360 最稳 */
-    private static JSONObject tryPublicSources(String seriesId, String vid, int episode, String preferred) {
+    private static JSONObject tryPublicSources(String seriesId, String vid, int episode, String preferred) throws Exception {
         // 首选用户想要的档插到前面，但 360 永远作为保底
         java.util.LinkedHashSet<String> order = new java.util.LinkedHashSet<>();
         if (preferred != null) {
