@@ -87,7 +87,8 @@ class Signer(
         getIv(getIv(getIv(0x20230928, query), body), le32(ts))
 
     fun branch(query: String, body: ByteArray?, ts: Int): Int =
-        (iv(sm3(query.toByteArray()), body?.let { digest("MD5", it) } ?: ByteArray(16), ts) and 15)
+        // drama V5: 无 body 时 bodyHash = MD5(空字节)，不是 16 个 0
+        (iv(sm3(query.toByteArray()), body?.let { digest("MD5", it) } ?: digest("MD5", ByteArray(0)), ts) and 15)
             .let { if (mobileV5) { if (it == 12) 0 else 1 } else it % 3 }
 
     private fun sumMd5(data: ByteArray): Int {
@@ -288,7 +289,7 @@ class Signer(
     fun medusa(url: String, body: ByteArray?, ts: Int, identity: Map<String, String>? = null): String {
         if (mobileV5) return medusaV5(url, body, ts, identity ?: device)
         val who = identity ?: device
-        val bodyMd5 = body?.let { digest("MD5", it) } ?: ByteArray(16)
+        val bodyMd5 = body?.let { digest("MD5", it) } ?: digest("MD5", ByteArray(0))
         val query = url.substringAfter('?').toByteArray()
         val querySm3 = sm3(query)
         val queryBodyTs = hashF13(querySm3, bodyMd5, ts)
@@ -372,7 +373,7 @@ class Signer(
 
     private fun medusaV5(url: String, body: ByteArray?, ts: Int, who: Map<String, String>): String {
         val query = sm3(url.substringAfter('?').toByteArray(Charsets.UTF_8))
-        val f13 = hashF13(query, body?.let { digest("MD5", it) } ?: ByteArray(16), ts)
+        val f13 = hashF13(query, body?.let { digest("MD5", it) } ?: digest("MD5", ByteArray(0)), ts)
         val flags = ByteArray(8)
         val version = who.getValue("version_name")
         val deviceInfo = proto(

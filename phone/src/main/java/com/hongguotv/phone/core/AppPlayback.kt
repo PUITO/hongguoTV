@@ -51,6 +51,15 @@ object AppPlayback {
         "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/player/v1",
         "https://api5-normal-lf.fqnovel.com/novel/player/multi_video_model/player/v1",
     )
+    private val PRELOAD_API_HOSTS = listOf(
+        "https://reading.snssdk.com/novel/player/multi_video_model/preload/v1",
+        "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/preload/v1",
+    )
+    private val VIDEO_MODEL_HOSTS = listOf(
+        "https://api5-normal-sinfonlinea.fqnovel.com/novel/player/video_model/v1/",
+        "https://api5-normal-sinfonlinec.fqnovel.com/novel/player/video_model/v1/",
+        "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/video_model/v1/",
+    )
     private val VIDEO_UA =
         "com.phoenix.read/73932 (Linux; U; Android 13; zh_CN; MI 12; Build/TKQ1; Cronet/TTNetVersion:8d40f833 2026-03-03 QuicVersion:c67e9834 2025-09-08)"
 
@@ -130,13 +139,11 @@ object AppPlayback {
     fun fetchStreams(vid: String): List<Stream> {
         lastError = ""
         AppLog.i("取流开始 vid=$vid")
-        // App 接口只接受数字 vid；v1_ 为网页预览 id，走公共源即可
         if (!vid.matches(Regex("^\\d{6,30}$"))) {
             lastError = "非数字 vid（可能是 v1_ 网页预览 id）"
             AppLog.w("取流跳过 App: $vid")
             throw IllegalStateException(lastError)
         }
-        // 最多：当前设备 2 次路径 + 换设备再 2 次
         val errors = mutableListOf<String>()
         for (round in 0 until 2) {
             val forceNew = round > 0
@@ -147,65 +154,93 @@ object AppPlayback {
                 AppLog.e("设备注册失败", e)
                 throw e
             }
-            AppLog.i("设备#${round + 1} did=${id.deviceId} iid=${id.installId} forceNew=$forceNew")
+            AppLog.i("设备#${round + 1} did=${id.deviceId} iid=${id.installId} forceNew=$forceNew cookies=${id.cookies.keys}")
 
-            // 0 V5 播放签名（对齐 hongguo-drama / N3urda）
+            // 0) 无签名 video_model（drama 3.9：注册设备 + 无签名可出流）
+            for (host in VIDEO_MODEL_HOSTS) {
+                try {
+                    val list = fetchUnsignedModel(id, vid, host)
+                    if (list.isNotEmpty()) {
+                        AppLog.i("无签名成功 host=${host.substringAfter("https://").substringBefore("/")} n=${list.size}")
+                        return list
+                    }
+                    errors += "unsigned空"
+                } catch (e: Exception) {
+                    errors += "unsigned:${e.message}"
+                    AppLog.w("无签名失败: ${e.message}")
+                }
+            }
+
+            // 1) V5 preload
+            for (host in PRELOAD_API_HOSTS) {
+                try {
+                    val list = fetchV5Post(id, vid, host, deviceLevel = 2, scene = "preload")
+                    if (list.isNotEmpty()) {
+                        AppLog.i("preload成功 n=${list.size}")
+                        return list
+                    }
+                    errors += "preload空"
+                } catch (e: Exception) {
+                    errors += "preload:${e.message}"
+                    AppLog.w("preload失败: ${e.message}")
+                }
+            }
+
+            // 2) V5 player
             for (host in PLAYER_API_HOSTS) {
-                try {
-                    val list = fetchV5Post(id, vid, host)
-                    if (list.isNotEmpty()) {
-                        AppLog.i("V5成功 host=${host.substringAfter("https://").substringBefore("/")} streams=${list.size} q=${list.first().quality}")
-                        return list
-                    }
-                    errors += "V5空@${host.substringAfter("https://").substringBefore("/")}"
-                } catch (e: Exception) {
-                    errors += "V5:${e.message}"
-                    AppLog.w("V5 失败 ${host.substringAfter("https://").substringBefore("/")}: ${e.message}")
-                }
-            }
-
-            // 1 TAB GET — 多域名
-            for (host in VIDEO_TAB_HOSTS) {
-                try {
-                    val list = fetchTabGet(id, vid, closeConn = round > 0, baseUrl = host)
-                    if (list.isNotEmpty()) {
-                        AppLog.i("TAB成功 host=${host.substringAfter("https://").substringBefore("/")} streams=${list.size} q=${list.first().quality}")
-                        return list
-                    }
-                    errors += "TAB空@${host.substringAfter("https://").substringBefore("/")}"
-                } catch (e: Exception) {
-                    errors += "TAB:${e.message}"
-                    AppLog.w("TAB 失败 ${host.substringAfter("https://").substringBefore("/")}: ${e.message}")
-                }
-            }
-
-            // 2 POST gzip / raw — 多域名
-            for (host in VIDEO_API_HOSTS) {
-                for (gz in listOf(true, false)) {
+                for (level in listOf(1, 3, 4)) {
                     try {
-                        val list = fetchApiPost(id, vid, gzip = gz, closeConn = true, baseUrl = host)
+                        val list = fetchV5Post(id, vid, host, deviceLevel = level, scene = "player")
                         if (list.isNotEmpty()) {
-                            AppLog.i("POST成功 gz=$gz host=${host.substringAfter("https://").substringBefore("/")} streams=${list.size}")
+                            AppLog.i("V5成功 level=$level n=${list.size}")
                             return list
                         }
-                        errors += "POST空 gz=$gz"
+                        errors += "V5空L$level"
                     } catch (e: Exception) {
-                        errors += "POST-${if (gz) "gzip" else "raw"}:${e.message}"
-                        AppLog.w("POST 失败 gz=$gz: ${e.message}")
+                        errors += "V5:${e.message}"
+                        AppLog.w("V5 失败 L$level: ${e.message}")
                     }
                 }
             }
 
-            // 本轮全空 → 清身份换设备
+            // 3) TAB V5 GET
+            for (host in VIDEO_TAB_HOSTS) {
+                try {
+                    val list = fetchTabGet(id, vid, closeConn = true, baseUrl = host)
+                    if (list.isNotEmpty()) {
+                        AppLog.i("TAB成功 n=${list.size}")
+                        return list
+                    }
+                    errors += "TAB空"
+                } catch (e: Exception) {
+                    errors += "TAB:${e.message}"
+                    AppLog.w("TAB 失败: ${e.message}")
+                }
+            }
+
+            // 4) multi_video_model V5
+            for (host in VIDEO_API_HOSTS) {
+                try {
+                    val list = fetchV5Post(id, vid, host, deviceLevel = 1, scene = "player")
+                    if (list.isNotEmpty()) {
+                        AppLog.i("API成功 n=${list.size}")
+                        return list
+                    }
+                    errors += "API空"
+                } catch (e: Exception) {
+                    errors += "API:${e.message}"
+                    AppLog.w("API 失败: ${e.message}")
+                }
+            }
+
             AppLog.w("第${round + 1}轮无流，准备换设备")
             clearIdentity()
         }
         lastError = errors.joinToString(" | ")
         AppLog.e("取流全部失败: $lastError")
-        return emptyList()
+        throw IllegalStateException("app play empty last=$lastError")
     }
 
-    @JvmStatic
     fun fetchBest(vid: String, preferred: String?): Stream? {
         val ranked = rankStreams(fetchStreams(vid), preferred)
         if (ranked.isEmpty()) return null
@@ -317,14 +352,87 @@ object AppPlayback {
 
 
     /** V5 签名取流（x-medusa / x-helios），与 hongguo-drama playback-v5 / N3urda Signer 对齐 */
-    private fun fetchV5Post(id: Identity, vid: String, baseUrl: String): List<Stream> {
+
+    /** drama 3.9：已注册匿名设备 + 无签名 video_model，可返回完整模型 */
+    private fun fetchUnsignedModel(id: Identity, vid: String, baseUrl: String): List<Stream> {
         val now = System.currentTimeMillis()
         val payload = JSONObject()
             .put(
                 "biz_param",
                 JSONObject()
                     .put("detail_page_version", 0)
-                    .put("device_level", 1) // 1 协商兼容码流，避免只返回 bytevc2
+                    .put("device_level", 3)
+                    .put("disable_digg_stat", false)
+                    .put("from_video_id", "")
+                    .put("need_all_video_definition", true)
+                    .put("need_mp4_align", false)
+                    .put("source", 9)
+                    .put("use_os_player", false)
+                    .put("use_server_dns", false)
+                    .put("video_platform", 3),
+            )
+            .put("content_type", 1004)
+            .put("video_id", vid)
+            .toString()
+            .toByteArray(StandardCharsets.UTF_8)
+        val body = gzip(payload)
+        val q = linkedMapOf(
+            "aid" to "8662",
+            "app_name" to "novelread",
+            "version_code" to "74332",
+            "version_name" to "7.4.3.32",
+            "channel" to "vivo_8662_64",
+            "device_platform" to "android",
+            "device_type" to "PGT-AN10",
+            "os_version" to "12",
+            "update_version_code" to "74332",
+            "iid" to id.installId,
+            "cdid" to id.cdid,
+            "device_id" to id.deviceId,
+            "_rticket" to now.toString(),
+        )
+        val query = encodeQuery(q)
+        val url = if (baseUrl.contains("?")) "$baseUrl&$query" else "$baseUrl?$query"
+        val headers = linkedMapOf(
+            "User-Agent" to VIDEO_UA,
+            "Accept" to "application/json",
+            "Content-Type" to "application/json; charset=utf-8",
+            "Content-Encoding" to "gzip",
+            "x-ss-stub" to digest("MD5", body).hex().uppercase(),
+            "sdk-version" to "2",
+            "x-ss-dp" to "8662",
+            "x-tt-store-region" to (id.cookies["store-region"] ?: "cn"),
+            "x-tt-store-region-src" to (id.cookies["store-region-src"] ?: "did"),
+            "Connection" to "close",
+        )
+        cookieHeader(id)?.let { headers["Cookie"] = it }
+        val conn = open(url, "POST", headers, closeConn = true)
+        conn.outputStream.use { it.write(body) }
+        val code = conn.responseCode
+        val text = readBody(conn)
+        AppLog.i("unsigned HTTP $code len=${text.length} body=${AppLog.clip(text, 180)}")
+        if (code >= 400) throw IllegalStateException("HTTP $code")
+        if (text.isBlank()) throw IllegalStateException("empty body")
+        val root = JSONObject(text)
+        val biz = root.optInt("code", root.optInt("Code", -1))
+        if (biz != 0) throw IllegalStateException("code $biz")
+        return parseStreams(root)
+    }
+
+    private fun fetchV5Post(
+        id: Identity,
+        vid: String,
+        baseUrl: String,
+        deviceLevel: Int = 1,
+        scene: String = "player",
+    ): List<Stream> {
+        val now = System.currentTimeMillis()
+        val payload = JSONObject()
+            .put(
+                "biz_param",
+                JSONObject()
+                    .put("detail_page_version", 0)
+                    .put("device_level", deviceLevel)
                     .put("disable_digg_stat", false)
                     .put("disable_video_relate_book", false)
                     .put("need_all_video_definition", true)
@@ -334,7 +442,7 @@ object AppPlayback {
                     .put("video_platform", 1024),
             )
             .put("mixed_video_id_map", JSONObject().put("1004", JSONArray().put(vid)))
-            .put("dr_scene", "player")
+            .put("dr_scene", scene)
             .toString()
             .toByteArray(StandardCharsets.UTF_8)
         val body = gzip(payload)
