@@ -156,25 +156,27 @@ object AppPlayback {
             }
             AppLog.i("设备#${round + 1} did=${id.deviceId} iid=${id.installId} forceNew=$forceNew cookies=${id.cookies.keys}")
 
-            // 0) 无签名 video_model（drama 3.9：注册设备 + 无签名可出流）
+            // 0) 单集 video_model：level4 + platform1024（N3urda 11-26 实网有效）
             for (host in VIDEO_MODEL_HOSTS) {
-                try {
-                    val list = fetchUnsignedModel(id, vid, host)
-                    if (list.isNotEmpty()) {
-                        AppLog.i("无签名成功 host=${host.substringAfter("https://").substringBefore("/")} n=${list.size}")
-                        return list
+                for (useSign in listOf(true, false)) {
+                    try {
+                        val list = fetchVideoModelSingle(id, vid, host, signed = useSign, deviceLevel = 4)
+                        if (list.isNotEmpty()) {
+                            AppLog.i("video_model成功 sign=$useSign n=${list.size}")
+                            return list
+                        }
+                        errors += "vm空"
+                    } catch (e: Exception) {
+                        errors += "vm:${e.message}"
+                        AppLog.w("video_model失败 sign=$useSign: ${e.message}")
                     }
-                    errors += "unsigned空"
-                } catch (e: Exception) {
-                    errors += "unsigned:${e.message}"
-                    AppLog.w("无签名失败: ${e.message}")
                 }
             }
 
-            // 1) V5 preload
+            // 1) preload L4（reading.snssdk.com）
             for (host in PRELOAD_API_HOSTS) {
                 try {
-                    val list = fetchV5Post(id, vid, host, deviceLevel = 2, scene = "preload")
+                    val list = fetchV5Post(id, vid, host, deviceLevel = 4, scene = "preload")
                     if (list.isNotEmpty()) {
                         AppLog.i("preload成功 n=${list.size}")
                         return list
@@ -186,9 +188,9 @@ object AppPlayback {
                 }
             }
 
-            // 2) V5 player
+            // 2) player V5 L4 / L1
             for (host in PLAYER_API_HOSTS) {
-                for (level in listOf(1, 3, 4)) {
+                for (level in listOf(4, 1)) {
                     try {
                         val list = fetchV5Post(id, vid, host, deviceLevel = level, scene = "player")
                         if (list.isNotEmpty()) {
@@ -353,15 +355,25 @@ object AppPlayback {
 
     /** V5 签名取流（x-medusa / x-helios），与 hongguo-drama playback-v5 / N3urda Signer 对齐 */
 
-    /** drama 3.9：已注册匿名设备 + 无签名 video_model，可返回完整模型 */
-    private fun fetchUnsignedModel(id: Identity, vid: String, baseUrl: String): List<Stream> {
+    /**
+     * 单集 video_model（N3urda 2026-11-26 实网）：
+     * POST /novel/player/video_model/v1/ + 顶层 video_id + content_type=1004
+     * device_level=4, video_platform=1024；可无签名或 V5。
+     */
+    private fun fetchVideoModelSingle(
+        id: Identity,
+        vid: String,
+        baseUrl: String,
+        signed: Boolean,
+        deviceLevel: Int = 4,
+    ): List<Stream> {
         val now = System.currentTimeMillis()
         val payload = JSONObject()
             .put(
                 "biz_param",
                 JSONObject()
                     .put("detail_page_version", 0)
-                    .put("device_level", 3)
+                    .put("device_level", deviceLevel)
                     .put("disable_digg_stat", false)
                     .put("from_video_id", "")
                     .put("need_all_video_definition", true)
@@ -369,30 +381,28 @@ object AppPlayback {
                     .put("source", 9)
                     .put("use_os_player", false)
                     .put("use_server_dns", false)
-                    .put("video_platform", 3),
+                    .put("video_platform", 1024),
             )
             .put("content_type", 1004)
             .put("video_id", vid)
             .toString()
             .toByteArray(StandardCharsets.UTF_8)
         val body = gzip(payload)
-        val q = linkedMapOf(
+        val values = linkedMapOf(
             "aid" to "8662",
             "app_name" to "novelread",
-            "version_code" to "74332",
-            "version_name" to "7.4.3.32",
-            "channel" to "vivo_8662_64",
+            "version_code" to "74532",
+            "version_name" to "7.4.5.32",
+            "channel" to "update_64",
             "device_platform" to "android",
-            "device_type" to "PGT-AN10",
-            "os_version" to "12",
-            "update_version_code" to "74332",
+            "device_type" to "25053RT47C",
+            "os_version" to "16",
+            "update_version_code" to "74532",
             "iid" to id.installId,
             "cdid" to id.cdid,
             "device_id" to id.deviceId,
             "_rticket" to now.toString(),
         )
-        val query = encodeQuery(q)
-        val url = if (baseUrl.contains("?")) "$baseUrl&$query" else "$baseUrl?$query"
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,
             "Accept" to "application/json",
@@ -406,11 +416,23 @@ object AppPlayback {
             "Connection" to "close",
         )
         cookieHeader(id)?.let { headers["Cookie"] = it }
+        val url: String
+        if (signed) {
+            val signer = Signer(mobileV5 = true)
+            val s = signer.signPlayback(baseUrl, values, body, now)
+            headers.putAll(s.headers)
+            url = s.url
+            AppLog.i("video_model V5 medusaLen=${s.headers["x-medusa"]?.length ?: 0} L$deviceLevel")
+        } else {
+            val query = encodeQuery(values)
+            url = if (baseUrl.contains("?")) "$baseUrl&$query" else "$baseUrl?$query"
+            AppLog.i("video_model 无签名 L$deviceLevel")
+        }
         val conn = open(url, "POST", headers, closeConn = true)
         conn.outputStream.use { it.write(body) }
         val code = conn.responseCode
         val text = readBody(conn)
-        AppLog.i("unsigned HTTP $code len=${text.length} body=${AppLog.clip(text, 180)}")
+        AppLog.i("video_model HTTP $code signed=$signed len=${text.length} body=${AppLog.clip(text, 160)}")
         if (code >= 400) throw IllegalStateException("HTTP $code")
         if (text.isBlank()) throw IllegalStateException("empty body")
         val root = JSONObject(text)
@@ -446,7 +468,22 @@ object AppPlayback {
             .toString()
             .toByteArray(StandardCharsets.UTF_8)
         val body = gzip(payload)
-        val values = linkedMapOf(
+        val useCurrent = scene == "preload" || deviceLevel >= 4
+        val values = if (useCurrent) linkedMapOf(
+            "aid" to "8662",
+            "app_name" to "novelread",
+            "version_code" to "74532",
+            "version_name" to "7.4.5.32",
+            "channel" to "update_64",
+            "device_platform" to "android",
+            "device_type" to "25053RT47C",
+            "os_version" to "16",
+            "update_version_code" to "74532",
+            "iid" to id.installId,
+            "cdid" to id.cdid,
+            "device_id" to id.deviceId,
+            "_rticket" to now.toString(),
+        ) else linkedMapOf(
             "aid" to "8662",
             "app_name" to "novelread",
             "version_code" to "74332",
@@ -463,9 +500,9 @@ object AppPlayback {
         )
         val signer = Signer(mobileV5 = true)
         val signed = signer.signPlayback(baseUrl, values, body, now)
-        AppLog.i("V5 签名 medusaLen=${signed.headers["x-medusa"]?.length ?: 0} helios=${signed.headers["x-helios"]?.take(16)}")
+        AppLog.i("V5 签名 medusaLen=${signed.headers["x-medusa"]?.length ?: 0} helios=${signed.headers["x-helios"]?.take(16)} L$deviceLevel $scene")
         val headers = linkedMapOf(
-            "User-Agent" to "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)",
+            "User-Agent" to VIDEO_UA,
             "Accept" to "application/json",
             "Content-Type" to "application/json; charset=utf-8",
             "Content-Encoding" to "gzip",
@@ -520,21 +557,25 @@ object AppPlayback {
             "from_video_id" to "",
         )
         val signer = Signer(mobileV5 = true)
-        val signed = signer.signPlayback(baseUrl, values, null, now)
+        // N3urda: GET 用空字节参与签名，但请求本身不带 body/Content-Type/x-ss-stub
+        val signed = signer.signPlayback(baseUrl, values, ByteArray(0), now)
         AppLog.i("TAB V5 medusaLen=${signed.headers["x-medusa"]?.length ?: 0}")
         val headers = linkedMapOf(
-            "User-Agent" to "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)",
-            "Accept" to "application/json; charset=utf-8,application/x-protobuf",
+            "User-Agent" to VIDEO_UA,
+            "Accept" to "application/json; charset=utf-8",
+            "Accept-Language" to "zh-CN,zh;q=0.9",
             "sdk-version" to "2",
             "x-xs-from-web" to "0",
-            "passport-sdk-version" to "5051452",
             "x-ss-dp" to "8662",
-            "x-tt-store-region" to "cn",
-            "x-tt-store-region-src" to "did",
+            "x-tt-store-region" to (id.cookies["store-region"] ?: "cn"),
+            "x-tt-store-region-src" to (id.cookies["store-region-src"] ?: "did"),
         )
         cookieHeader(id)?.let { headers["Cookie"] = it }
         if (closeConn) headers["Connection"] = "close"
         headers.putAll(signed.headers)
+        headers.remove("Content-Type")
+        headers.remove("Content-Encoding")
+        headers.remove("x-ss-stub")
         val conn = open(signed.url, "GET", headers, closeConn)
         val code = conn.responseCode
         val text = readBody(conn)
