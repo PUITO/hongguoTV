@@ -558,7 +558,7 @@ object AppPlayback {
         )
         val signer = Signer(mobileV5 = true)
         // N3urda: GET 用空字节参与签名，但请求本身不带 body/Content-Type/x-ss-stub
-        val signed = signer.signPlayback(baseUrl, values, ByteArray(0), now)
+        val signed = signer.signPlayback(baseUrl, values, null, now)
         AppLog.i("TAB V5 medusaLen=${signed.headers["x-medusa"]?.length ?: 0}")
         val headers = linkedMapOf(
             "User-Agent" to VIDEO_UA,

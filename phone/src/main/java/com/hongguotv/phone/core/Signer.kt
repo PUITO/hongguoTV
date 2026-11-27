@@ -523,11 +523,13 @@ class Signer(
         body: ByteArray? = null,
         now: Long = clock(),
     ): Request {
+        // 空 body 与 null 等价（GET 签名用 MD5(空)），避免 ByteArray(0) 误加 Content-Type
+        val effective = if (body == null || body.isEmpty()) null else body
         val ts = (now / 1000).toInt()
         for (offset in 0..1023) {
             val ticket = now + offset
             val query = encode(values + ("_rticket" to ticket.toString()))
-            if (branch(query, body, ts) != 0) continue
+            if (branch(query, effective, ts) != 0) continue
             val url = "$base?$query"
             val headers = linkedMapOf(
                 "User-Agent" to VendorConstants.PLAYER_UA,
@@ -535,15 +537,15 @@ class Signer(
                 "x-ss-req-ticket" to ticket.toString(), "sdk-version" to "2",
                 "x-xs-from-web" to "0", "x-khronos" to ts.toString(),
                 "x-ladon" to be32(ts).base64(), "x-argus" to le32(ts).base64(),
-                "x-gorgon" to gorgon(query, body, ts, (random() * 65536).toInt()),
-                "x-helios" to helios(ts), "x-medusa" to medusa(url, body, ts, if (mobileV5) values else null),
+                "x-gorgon" to gorgon(query, effective, ts, (random() * 65536).toInt()),
+                "x-helios" to helios(ts), "x-medusa" to medusa(url, effective, ts, if (mobileV5) values else null),
             )
             if (mobileV5) headers.keys.retainAll(setOf("x-khronos", "x-helios", "x-medusa"))
-            if (body != null) {
+            if (effective != null) {
                 headers["Content-Type"] = "application/json; charset=utf-8"
-                headers["x-ss-stub"] = digest("MD5", body).hex().uppercase()
+                headers["x-ss-stub"] = digest("MD5", effective).hex().uppercase()
             }
-            return Request(url, headers, body)
+            return Request(url, headers, effective)
         }
         error("无法生成播放签名")
     }
